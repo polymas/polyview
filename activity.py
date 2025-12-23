@@ -269,27 +269,30 @@ def _fetch_user_activity_from_api(
     limit: int = 100,
     offset: int = 0,
     sort_by: str = "TIMESTAMP",
-    sort_direction: str = "DESC"
+    sort_direction: str = "DESC",
+    exclude_deposits_withdrawals: bool = True
 ) -> List[Dict[str, Any]]:
     """
     从 Polymarket API 获取用户活动（内部函数）
 
-    参数:
-        user: 用户地址 (必需)
-        limit: 返回数量限制 (默认: 100)
-        offset: 偏移量 (默认: 0)
-        sort_by: 排序字段 (默认: TIMESTAMP)
-        sort_direction: 排序方向 (ASC, DESC)
+        参数:
+            user: 用户地址 (必需)
+            limit: 返回数量限制 (默认: 100)
+            offset: 偏移量 (默认: 0)
+            sort_by: 排序字段 (默认: TIMESTAMP)
+            sort_direction: 排序方向 (ASC, DESC)
+            exclude_deposits_withdrawals: 是否排除存款和提现记录 (默认: True)
 
     返回:
         活动记录列表
-    """
+        """
     params = {
         "user": user,
         "limit": limit,
         "offset": offset,
         "sortBy": sort_by,
-        "sortDirection": sort_direction
+        "sortDirection": sort_direction,
+        "excludeDepositsWithdrawals": str(exclude_deposits_withdrawals).lower()
     }
 
     try:
@@ -310,7 +313,8 @@ def get_user_activity(
     offset: int = 0,
     sort_by: str = "TIMESTAMP",
     sort_direction: str = "DESC",
-    use_cache: bool = True
+    use_cache: bool = True,
+    exclude_deposits_withdrawals: bool = True
 ) -> List[Dict[str, Any]]:
     """
     获取用户活动（带缓存支持）
@@ -322,6 +326,7 @@ def get_user_activity(
         sort_by: 排序字段 (默认: TIMESTAMP)
         sort_direction: 排序方向 (ASC, DESC)
         use_cache: 是否使用缓存 (默认: True)
+        exclude_deposits_withdrawals: 是否排除存款和提现记录 (默认: True)
 
     返回:
         活动记录列表
@@ -329,7 +334,7 @@ def get_user_activity(
     if not use_cache:
         # 不使用缓存，直接调用 API
         return _fetch_user_activity_from_api(
-            user, limit, offset, sort_by, sort_direction
+            user, limit, offset, sort_by, sort_direction, exclude_deposits_withdrawals
         )
 
     # 使用缓存逻辑
@@ -347,7 +352,8 @@ def get_user_activity(
             limit=cache_update_limit,
             offset=0,
             sort_by=sort_by,
-            sort_direction=sort_direction
+            sort_direction=sort_direction,
+            exclude_deposits_withdrawals=exclude_deposits_withdrawals
         )
 
         # 更新缓存
@@ -393,7 +399,8 @@ def get_all_user_activity(
     sort_direction: str = "DESC",
     batch_size: int = 100,
     max_records: Optional[int] = None,
-    use_cache: bool = True
+    use_cache: bool = True,
+    exclude_deposits_withdrawals: bool = True
 ) -> List[Dict[str, Any]]:
     """
     循环获取用户的所有历史活动记录（带缓存支持）
@@ -405,6 +412,7 @@ def get_all_user_activity(
         batch_size: 每批获取的记录数 (默认: 100, 最大: 500)
         max_records: 最大获取记录数 (None 表示获取所有记录)
         use_cache: 是否使用缓存 (默认: True)
+        exclude_deposits_withdrawals: 是否排除存款和提现记录 (默认: True)
 
     返回:
         所有活动记录的列表
@@ -429,7 +437,8 @@ def get_all_user_activity(
                 limit=500,  # 获取一批最新数据
                 offset=0,
                 sort_by=sort_by,
-                sort_direction=sort_direction
+                sort_direction=sort_direction,
+                exclude_deposits_withdrawals=exclude_deposits_withdrawals
             )
 
             if latest_data:
@@ -498,7 +507,8 @@ def get_all_user_activity(
                 limit=batch_size,
                 offset=offset,
                 sort_by=sort_by,
-                sort_direction=sort_direction
+                sort_direction=sort_direction,
+                exclude_deposits_withdrawals=exclude_deposits_withdrawals
             )
 
             # 如果没有数据，说明已经获取完所有记录
@@ -587,7 +597,8 @@ async def get_activity(
     sort_by: str = Query("TIMESTAMP", description="排序字段"),
     sort_direction: str = Query(
         "DESC", pattern="^(ASC|DESC)$", description="排序方向（ASC 或 DESC）"),
-    use_cache: bool = Query(True, description="是否使用缓存（默认True）")
+    use_cache: bool = Query(True, description="是否使用缓存（默认True）"),
+    exclude_deposits_withdrawals: bool = Query(True, description="是否排除存款和提现记录（默认True）")
 ):
     """
     获取用户活动记录（分页或全部）
@@ -598,6 +609,7 @@ async def get_activity(
     - **sort_by**: 排序字段（默认TIMESTAMP）
     - **sort_direction**: 排序方向，ASC 或 DESC（默认DESC）
     - **use_cache**: 是否使用缓存（默认True）
+    - **exclude_deposits_withdrawals**: 是否排除存款和提现记录（默认True）
     """
     try:
         # 验证用户地址格式
@@ -616,7 +628,8 @@ async def get_activity(
                 sort_direction=sort_direction,
                 batch_size=500,  # 使用最大批次大小以提高效率
                 max_records=None,  # 不限制最大记录数
-                use_cache=use_cache
+                use_cache=use_cache,
+                exclude_deposits_withdrawals=exclude_deposits_withdrawals
             )
             message = f"成功获取所有 {len(data)} 条历史活动记录"
         else:
@@ -633,7 +646,8 @@ async def get_activity(
                 offset=offset,
                 sort_by=sort_by,
                 sort_direction=sort_direction,
-                use_cache=use_cache
+                use_cache=use_cache,
+                exclude_deposits_withdrawals=exclude_deposits_withdrawals
             )
             message = f"成功获取 {len(data)} 条活动记录（offset: {offset}, limit: {limit}）"
 
@@ -668,7 +682,8 @@ async def get_all_activity(
     batch_size: int = Query(100, ge=1, le=500, description="每批获取的记录数（1-500）"),
     max_records: Optional[int] = Query(
         None, ge=1, description="最大获取记录数（None表示获取所有）"),
-    use_cache: bool = Query(True, description="是否使用缓存（默认True）")
+    use_cache: bool = Query(True, description="是否使用缓存（默认True）"),
+    exclude_deposits_withdrawals: bool = Query(True, description="是否排除存款和提现记录（默认True）")
 ):
     """
     获取用户所有历史活动记录
@@ -680,6 +695,7 @@ async def get_all_activity(
     - **sort_direction**: 排序方向，ASC 或 DESC（默认DESC）
     - **batch_size**: 每批获取的记录数（默认100，最大500）
     - **max_records**: 最大获取记录数限制（可选，None表示获取所有）
+    - **exclude_deposits_withdrawals**: 是否排除存款和提现记录（默认True）
     """
     try:
         # 验证用户地址格式
@@ -695,7 +711,8 @@ async def get_all_activity(
             sort_direction=sort_direction,
             batch_size=batch_size,
             max_records=max_records,
-            use_cache=use_cache
+            use_cache=use_cache,
+            exclude_deposits_withdrawals=exclude_deposits_withdrawals
         )
 
         return ActivityResponse(
