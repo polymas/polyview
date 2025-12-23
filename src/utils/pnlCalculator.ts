@@ -1,5 +1,19 @@
 import { PolymarketTransaction, PropositionPnL, DailyPnL, Statistics, HoldingDuration } from '../types';
-import { format, differenceInDays } from 'date-fns';
+import { differenceInHours } from 'date-fns';
+
+/**
+ * 将时间戳转换为 UTC+8 时区的日期字符串 (yyyy-MM-dd)
+ */
+function formatDateUTC8(timestamp: number): string {
+  // UTC+8 = UTC + 8小时 = UTC + 8 * 60 * 60 * 1000 毫秒
+  const utc8Timestamp = timestamp + 8 * 60 * 60 * 1000;
+  // 使用 UTC 时间格式化，得到 UTC+8 的日期
+  const date = new Date(utc8Timestamp);
+  const year = date.getUTCFullYear();
+  const month = String(date.getUTCMonth() + 1).padStart(2, '0');
+  const day = String(date.getUTCDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
 
 /**
  * 计算每个命题的盈亏
@@ -27,11 +41,12 @@ export function calculatePropositionPnL(
 
   conditionGroups.forEach((txs, conditionId) => {
     // 同一个 conditionId 的所有交易合并计算，不按 outcome 分组
-    // 收集所有不同的 outcome 用于显示
+    // 收集所有不同的 outcome 用于显示（不强制设置YES）
     const outcomeSet = new Set<string>();
     txs.forEach((tx) => {
-      const outcomeRaw = tx.outcome || 'YES';
-      outcomeSet.add(outcomeRaw);
+      if (tx.outcome) {  // 只添加有outcome的交易
+        outcomeSet.add(tx.outcome);
+      }
     });
     const outcomes = Array.from(outcomeSet);
 
@@ -156,8 +171,8 @@ export function calculatePropositionPnL(
     const onlyRedeem = buyTxs.length === 0 && sellTxs.length > 0;
     const status = (isFullyClosed || onlyRedeem) ? 'CLOSED' : (currentShares > 0 ? 'OPEN' : 'CLOSED');
 
-    // 使用第一个 outcome 作为主要显示（向后兼容）
-    const primaryOutcome = outcomes[0] || 'YES';
+    // 使用第一个 outcome 作为主要显示（如果没有outcome则为空）
+    const primaryOutcome = outcomes[0] || '';
 
     propositions.push({
       market: conditionId,
@@ -181,7 +196,8 @@ export function calculatePropositionPnL(
 }
 
 /**
- * 计算每日盈亏（根据开仓和平仓计算实际获利）
+ * 计算每日盈亏（只计算已平仓的盈亏）
+ * 交易额只计算TRADE类型，不计算REDEEM
  */
 export function calculateDailyPnL(
   transactions: PolymarketTransaction[],
@@ -192,44 +208,50 @@ export function calculateDailyPnL(
 
   const dailyMap = new Map<string, DailyPnL>();
 
-  // 初始化每日数据
+  // 只处理已平仓的命题
+  const closedPropositions = propositions.filter(prop => prop.status === 'CLOSED');
+
+  // 初始化每日数据（只统计TRADE类型的交易额，不统计REDEEM）
   validTransactions.forEach((tx) => {
-    const date = format(new Date(tx.timestamp), 'yyyy-MM-dd');
+    // 只计算TRADE类型的交易额，REDEEM不算交易额
+    // 使用originalType字段来判断：只有TRADE类型的BUY才算交易额
+    if (tx.type === 'BUY' && tx.originalType === 'TRADE') {
+      // 使用 UTC+8 时区计算日期
+      const date = formatDateUTC8(tx.timestamp);
 
-    if (!dailyMap.has(date)) {
-      dailyMap.set(date, {
-        date,
-        pnl: 0,
-        realizedPnL: 0,
-        tradingVolume: 0,
-        transactions: 0,
-        markets: [],
-      });
-    }
+      if (!dailyMap.has(date)) {
+        dailyMap.set(date, {
+          date,
+          pnl: 0,
+          realizedPnL: 0,
+          tradingVolume: 0,
+          transactions: 0,
+          markets: [],
+        });
+      }
 
-    const daily = dailyMap.get(date)!;
-    daily.transactions += 1;
-    daily.tradingVolume += tx.totalCost;  // 累计交易额
+      const daily = dailyMap.get(date)!;
+      daily.transactions += 1;
+      daily.tradingVolume += tx.totalCost;  // 只累计TRADE类型的BUY交易额
 
-    if (!daily.markets.includes(tx.market)) {
-      daily.markets.push(tx.market);
+      if (!daily.markets.includes(tx.market)) {
+        daily.markets.push(tx.market);
+      }
     }
   });
 
-  // 计算每日已实现盈亏（平仓获利）
-  // 使用 FIFO 方法计算每个持仓的盈亏
-  propositions.forEach((prop) => {
+  // 计算每日已实现盈亏（只计算已平仓的命题，按平仓时间计算）
+  closedPropositions.forEach((prop) => {
+    // 只处理有平仓时间的命题
+    if (!prop.closeTime) return;
+
     const sortedTxs = [...prop.transactions].sort((a, b) => a.timestamp - b.timestamp);
 
     // 使用队列来跟踪持仓
     const positions: Array<{ amount: number; cost: number; timestamp: number }> = [];
 
+    // 先遍历所有交易，建立持仓队列
     sortedTxs.forEach((tx) => {
-      const date = format(new Date(tx.timestamp), 'yyyy-MM-dd');
-      const daily = dailyMap.get(date);
-
-      if (!daily) return;
-
       if (tx.type === 'BUY') {
         // 开仓：添加到持仓队列
         positions.push({
@@ -237,8 +259,30 @@ export function calculateDailyPnL(
           cost: tx.totalCost,
           timestamp: tx.timestamp,
         });
-      } else if (tx.type === 'SELL') {
-        // 平仓：计算盈亏
+      }
+    });
+
+    // 按平仓时间计算盈亏（只计算SELL交易，按平仓日期分组）
+    sortedTxs.forEach((tx) => {
+      if (tx.type === 'SELL') {
+        // 平仓：计算盈亏，按平仓时间（SELL交易的时间）记录到对应日期
+        // 使用 UTC+8 时区计算日期
+        const closeDate = formatDateUTC8(tx.timestamp);
+
+        // 确保日期存在
+        if (!dailyMap.has(closeDate)) {
+          dailyMap.set(closeDate, {
+            date: closeDate,
+            pnl: 0,
+            realizedPnL: 0,
+            tradingVolume: 0,
+            transactions: 0,
+            markets: [],
+          });
+        }
+
+        const daily = dailyMap.get(closeDate)!;
+
         let remainingAmount = tx.amount;
         let realizedPnL = 0;
 
@@ -272,19 +316,15 @@ export function calculateDailyPnL(
           realizedPnL += sellValue;  // 卖空收益
         }
 
+        // 按平仓时间记录当日盈亏（不累计）
         daily.realizedPnL += realizedPnL;
       }
     });
   });
 
-  // 计算累计盈亏
-  const sortedDates = Array.from(dailyMap.keys()).sort();
-  let cumulativePnL = 0;
-
-  sortedDates.forEach((date) => {
-    const daily = dailyMap.get(date)!;
-    cumulativePnL += daily.realizedPnL;
-    daily.pnl = cumulativePnL;
+  // 当日盈亏 = 当日已实现盈亏（不累计）
+  dailyMap.forEach((daily) => {
+    daily.pnl = daily.realizedPnL;
   });
 
   return Array.from(dailyMap.values()).sort((a, b) =>
@@ -293,35 +333,74 @@ export function calculateDailyPnL(
 }
 
 /**
- * 计算统计数据
+ * 计算统计数据（只计算指定天数内的数据）
  */
 export function calculateStatistics(
   propositions: PropositionPnL[],
-  transactions: PolymarketTransaction[]
+  transactions: PolymarketTransaction[],
+  days: number = 30  // 默认30天
 ): Statistics {
-  // 过滤掉 size=0 的交易
-  const validTransactions = transactions.filter(tx => tx.amount > 0);
+  // 计算指定天数前的时间戳
+  const daysAgo = Date.now() - days * 24 * 60 * 60 * 1000;
 
-  const totalInvested = propositions.reduce(
-    (sum, prop) => sum + prop.totalInvested,
-    0
+  // 过滤掉 size=0 的交易，并且只保留指定天数内的交易
+  const validTransactions = transactions.filter(
+    tx => tx.amount > 0 && tx.timestamp >= daysAgo
   );
 
-  const totalReturned = propositions.reduce(
-    (sum, prop) => sum + prop.totalReturned,
-    0
-  );
+  // 过滤命题：只保留那些在指定天数内有交易的命题
+  // 通过检查命题的交易时间戳来判断
+  const recentPropositions = propositions.filter(prop => {
+    // 检查命题的交易中是否有指定天数内的交易
+    return prop.transactions.some(tx => tx.timestamp >= daysAgo);
+  });
 
-  // 总盈亏按正常开平仓的盈亏计算（使用每个命题的已实现盈亏）
-  const totalPnL = propositions.reduce(
-    (sum, prop) => sum + prop.realizedPnL,
-    0
-  );
+  // 只计算指定天数内的投入和收回
+  // 需要重新计算每个命题在指定天数内的投入和收回
+  let totalInvested = 0;
+  let totalReturned = 0;
+  let totalPnL = 0;
+
+  recentPropositions.forEach((prop) => {
+    // 只统计指定天数内的交易
+    const recentTxs = prop.transactions.filter(tx => tx.timestamp >= daysAgo);
+
+    // 计算指定天数内的投入（只统计BUY交易）
+    const recentInvested = recentTxs
+      .filter(tx => tx.type === 'BUY')
+      .reduce((sum, tx) => sum + tx.totalCost, 0);
+
+    // 计算指定天数内的收回（只统计SELL交易）
+    const recentReturned = recentTxs
+      .filter(tx => tx.type === 'SELL')
+      .reduce((sum, tx) => sum + (tx.amount * tx.price), 0);
+
+    // 对于已平仓的命题，如果平仓时间在指定天数内，计算盈亏
+    // 对于持仓中的命题，只计算已实现的盈亏（如果有部分平仓）
+    if (prop.status === 'CLOSED' && prop.closeTime && prop.closeTime >= daysAgo) {
+      // 已平仓且在指定天数内平仓的，使用整个命题的已实现盈亏
+      totalInvested += prop.totalInvested;
+      totalReturned += prop.totalReturned;
+      totalPnL += prop.realizedPnL;
+    } else if (prop.status === 'OPEN') {
+      // 持仓中的，只计算指定天数内的投入和已实现盈亏
+      totalInvested += recentInvested;
+      totalReturned += recentReturned;
+      // 对于持仓中的，需要计算指定天数内的已实现盈亏
+      // 这里简化处理，使用命题的realizedPnL（如果有部分平仓）
+      totalPnL += prop.realizedPnL;
+    } else if (prop.status === 'CLOSED' && prop.closeTime && prop.closeTime < daysAgo) {
+      // 已平仓但不在指定天数内的，不计算
+      // 但如果开仓在指定天数内，可能需要部分计算
+      // 这里简化处理，不计算
+    }
+  });
+
   const totalPnLPercent = totalInvested > 0
     ? (totalPnL / totalInvested) * 100
     : 0;
 
-  // 计算年化收益率
+  // 计算年化收益率（基于指定天数的数据）
   if (validTransactions.length === 0) {
     return {
       totalInvested: 0,
@@ -330,33 +409,18 @@ export function calculateStatistics(
       totalPnLPercent: 0,
       annualizedReturn: 0,
       totalTransactions: 0,
-      activeMarkets: 0,
-      closedMarkets: 0,
+      activeMarkets: recentPropositions.filter(p => p.status === 'OPEN').length,
+      closedMarkets: recentPropositions.filter(p => p.status === 'CLOSED').length,
     };
   }
 
-  const firstTx = validTransactions.reduce(
-    (earliest, tx) => tx.timestamp < earliest.timestamp ? tx : earliest,
-    validTransactions[0]
-  );
-
-  const lastTx = validTransactions.reduce(
-    (latest, tx) => tx.timestamp > latest.timestamp ? tx : latest,
-    validTransactions[0]
-  );
-
-  const daysDiff = differenceInDays(
-    new Date(lastTx.timestamp),
-    new Date(firstTx.timestamp)
-  );
-
-  const years = Math.max(daysDiff / 365, 1 / 365); // 至少1天
+  // 基于指定天数的时间范围计算年化收益率
   const annualizedReturn = totalInvested > 0
-    ? ((Math.pow(1 + totalPnL / totalInvested, 1 / years) - 1) * 100)
+    ? ((Math.pow(1 + totalPnL / totalInvested, 365 / days) - 1) * 100)
     : 0;
 
-  const activeMarkets = propositions.filter(p => p.status === 'OPEN').length;
-  const closedMarkets = propositions.filter(p => p.status === 'CLOSED').length;
+  const activeMarkets = recentPropositions.filter(p => p.status === 'OPEN').length;
+  const closedMarkets = recentPropositions.filter(p => p.status === 'CLOSED').length;
 
   return {
     totalInvested,
@@ -371,22 +435,29 @@ export function calculateStatistics(
 }
 
 /**
- * 计算每个代币的持仓时长分布
+ * 计算每个代币的持仓时长分布（只统计指定天数内的数据）
  */
 export function calculateHoldingDurations(
-  transactions: PolymarketTransaction[]
+  transactions: PolymarketTransaction[],
+  days: number = 30  // 默认30天
 ): HoldingDuration[] {
-  // 过滤掉 size=0 的交易
-  const validTransactions = transactions.filter(tx => tx.amount > 0);
+  // 计算指定天数前的时间戳
+  const daysAgo = Date.now() - days * 24 * 60 * 60 * 1000;
+
+  // 过滤掉 size=0 的交易，并且只保留指定天数内的交易
+  const validTransactions = transactions.filter(
+    tx => tx.amount > 0 && tx.timestamp >= daysAgo
+  );
 
   const durations: HoldingDuration[] = [];
 
   // 按市场和 outcome 分组
-  // 统一 outcome 格式，确保 "Yes" 和 "YES" 被视为同一个
+  // 如果没有outcome，使用空字符串作为分组键的一部分
   const marketGroups = new Map<string, PolymarketTransaction[]>();
 
   validTransactions.forEach((tx) => {
-    const outcome = (tx.outcome || 'YES').toUpperCase();
+    // 如果没有outcome，使用空字符串，不强制设置为YES
+    const outcome = tx.outcome ? tx.outcome.toUpperCase() : '';
     const key = `${tx.market}-${outcome}`;
     if (!marketGroups.has(key)) {
       marketGroups.set(key, []);
@@ -443,45 +514,53 @@ export function calculateHoldingDurations(
           }
         }
 
-        // 如果完全平仓，记录持仓时长
+        // 如果完全平仓，记录持仓时长（按小时计算）
+        // 只统计平仓时间在指定天数内的持仓
         if (positions.length === 0 && firstOpenTime !== null && lastCloseTime !== null) {
-          const durationDays = differenceInDays(
-            new Date(lastCloseTime),
-            new Date(firstOpenTime)
-          );
+          // 只统计平仓时间在指定天数内的持仓
+          if (lastCloseTime >= daysAgo) {
+            const durationHours = differenceInHours(
+              new Date(lastCloseTime),
+              new Date(firstOpenTime)
+            );
 
-          durations.push({
-            market,
-            question: sortedTxs[0].marketQuestion,
-            outcome,
-            openTime: firstOpenTime,
-            closeTime: lastCloseTime,
-            duration: Math.max(durationDays, 0),  // 确保非负
-            status: 'CLOSED',
-            realizedPnL,
-          });
+            durations.push({
+              market,
+              question: sortedTxs[0].marketQuestion,
+              outcome,
+              openTime: firstOpenTime,
+              closeTime: lastCloseTime,
+              duration: Math.max(durationHours, 0),  // 确保非负，单位：小时
+              status: 'CLOSED',
+              realizedPnL,
+            });
+          }
         }
       }
     });
 
-    // 如果还有持仓，记录为 OPEN
+    // 如果还有持仓，记录为 OPEN（按小时计算）
+    // 只统计开仓时间在指定天数内的持仓
     if (positions.length > 0) {
       const firstOpenTime = positions[0].timestamp;
-      const durationDays = differenceInDays(
-        new Date(),
-        new Date(firstOpenTime)
-      );
+      // 只统计开仓时间在指定天数内的持仓
+      if (firstOpenTime >= daysAgo) {
+        const durationHours = differenceInHours(
+          new Date(),
+          new Date(firstOpenTime)
+        );
 
-      durations.push({
-        market,
-        question: sortedTxs[0].marketQuestion,
-        outcome,
-        openTime: firstOpenTime,
-        closeTime: null,
-        duration: Math.max(durationDays, 0),
-        status: 'OPEN',
-        realizedPnL: 0,  // 未实现盈亏
-      });
+        durations.push({
+          market,
+          question: sortedTxs[0].marketQuestion,
+          outcome,
+          openTime: firstOpenTime,
+          closeTime: null,
+          duration: Math.max(durationHours, 0),  // 单位：小时
+          status: 'OPEN',
+          realizedPnL: 0,  // 未实现盈亏
+        });
+      }
     }
   });
 

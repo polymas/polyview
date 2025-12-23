@@ -8,9 +8,9 @@ interface TradingVolumeCalendarProps {
   currentMonth?: Date;
 }
 
-export const TradingVolumeCalendar: React.FC<TradingVolumeCalendarProps> = ({ 
-  dailyPnL, 
-  currentMonth = new Date() 
+export const TradingVolumeCalendar: React.FC<TradingVolumeCalendarProps> = ({
+  dailyPnL,
+  currentMonth = new Date()
 }) => {
   const dailyMap = useMemo(() => {
     const map = new Map<string, DailyPnL>();
@@ -60,7 +60,7 @@ export const TradingVolumeCalendar: React.FC<TradingVolumeCalendarProps> = ({
           {format(currentMonth, 'yyyy年MM月', { locale: zhCN })}
         </h3>
       </div>
-      
+
       <div className="grid grid-cols-7 gap-0.5">
         {/* 星期标题 */}
         {['日', '一', '二', '三', '四', '五', '六'].map((day) => (
@@ -74,7 +74,7 @@ export const TradingVolumeCalendar: React.FC<TradingVolumeCalendarProps> = ({
 
         {/* 月初空白 */}
         {emptyDays.map((_, index) => (
-          <div key={`empty-${index}`} className="h-8" />
+          <div key={`empty-${index}`} className="h-12" />
         ))}
 
         {/* 日期格子 */}
@@ -87,11 +87,9 @@ export const TradingVolumeCalendar: React.FC<TradingVolumeCalendarProps> = ({
           return (
             <div
               key={dateStr}
-              className={`h-8 border rounded p-0.5 flex flex-col items-center justify-center ${
-                daily ? getVolumeColor(daily.tradingVolume) : 'bg-gray-50 border-gray-200'
-              } ${isCurrentDay ? 'ring-1 ring-blue-500' : ''} ${
-                !isCurrentMonth ? 'opacity-50' : ''
-              }`}
+              className={`h-12 border rounded p-0.5 flex flex-col items-center justify-center ${daily ? getVolumeColor(daily.tradingVolume) : 'bg-gray-50 border-gray-200'
+                } ${isCurrentDay ? 'ring-1 ring-blue-500' : ''} ${!isCurrentMonth ? 'opacity-50' : ''
+                }`}
             >
               <div className="text-[10px] font-medium leading-tight">
                 {format(day, 'd')}

@@ -4,42 +4,51 @@ import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, Responsive
 
 interface HoldingDurationChartProps {
   durations: HoldingDuration[];
+  days: number;  // 统计天数
 }
 
-export const HoldingDurationChart: React.FC<HoldingDurationChartProps> = ({ durations }) => {
-  // 按持仓时长分组统计
+export const HoldingDurationChart: React.FC<HoldingDurationChartProps> = ({ durations, days }) => {
+  // 按持仓时长分组统计（按小时分组）
   const durationGroups = useMemo(() => {
     const groups: { [key: string]: { count: number; totalPnL: number; markets: string[] } } = {};
-    
+
     durations.forEach((duration) => {
       let groupKey: string;
-      
-      if (duration.duration < 1) {
-        groupKey = '<1天';
-      } else if (duration.duration < 7) {
-        groupKey = '1-7天';
-      } else if (duration.duration < 30) {
+      const hours = duration.duration;
+
+      // 按小时分组
+      if (hours < 1) {
+        groupKey = '<1小时';
+      } else if (hours < 6) {
+        groupKey = '1-6小时';
+      } else if (hours < 12) {
+        groupKey = '6-12小时';
+      } else if (hours < 24) {
+        groupKey = '12-24小时';
+      } else if (hours < 48) {
+        groupKey = '1-2天';
+      } else if (hours < 168) {  // 7天 = 168小时
+        groupKey = '2-7天';
+      } else if (hours < 720) {  // 30天 = 720小时
         groupKey = '7-30天';
-      } else if (duration.duration < 90) {
+      } else if (hours < 2160) {  // 90天 = 2160小时
         groupKey = '30-90天';
-      } else if (duration.duration < 180) {
-        groupKey = '90-180天';
       } else {
-        groupKey = '>180天';
+        groupKey = '>90天';
       }
-      
+
       if (!groups[groupKey]) {
         groups[groupKey] = { count: 0, totalPnL: 0, markets: [] };
       }
-      
+
       groups[groupKey].count += 1;
       groups[groupKey].totalPnL += duration.realizedPnL;
-      
+
       if (!groups[groupKey].markets.includes(duration.market)) {
         groups[groupKey].markets.push(duration.market);
       }
     });
-    
+
     return Object.entries(groups).map(([duration, data]) => ({
       duration,
       count: data.count,
@@ -48,7 +57,7 @@ export const HoldingDurationChart: React.FC<HoldingDurationChartProps> = ({ dura
       markets: data.markets.length,
     })).sort((a, b) => {
       // 按时长排序
-      const order = ['<1天', '1-7天', '7-30天', '30-90天', '90-180天', '>180天'];
+      const order = ['<1小时', '1-6小时', '6-12小时', '12-24小时', '1-2天', '2-7天', '7-30天', '30-90天', '>90天'];
       return order.indexOf(a.duration) - order.indexOf(b.duration);
     });
   }, [durations]);
@@ -62,7 +71,7 @@ export const HoldingDurationChart: React.FC<HoldingDurationChartProps> = ({ dura
   if (durations.length === 0) {
     return (
       <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-2">
-        <h3 className="text-sm font-semibold text-gray-900 mb-2">持仓时长分布</h3>
+        <h3 className="text-sm font-semibold text-gray-900 mb-2">持仓时长分布（{days === 7 ? '近7天' : '近30天'}）</h3>
         <p className="text-gray-500 text-center py-4 text-xs">暂无持仓数据</p>
       </div>
     );
@@ -72,7 +81,7 @@ export const HoldingDurationChart: React.FC<HoldingDurationChartProps> = ({ dura
     <div className="space-y-3">
       {/* 按时长分组统计 */}
       <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-2">
-        <h3 className="text-sm font-semibold text-gray-900 mb-2">持仓时长分布（按时长分组）</h3>
+        <h3 className="text-sm font-semibold text-gray-900 mb-2">持仓时长分布（{days === 7 ? '近7天' : '近30天'}，按时长分组）</h3>
         <ResponsiveContainer width="100%" height={150}>
           <BarChart data={durationGroups}>
             <CartesianGrid strokeDasharray="3 3" />
@@ -95,7 +104,7 @@ export const HoldingDurationChart: React.FC<HoldingDurationChartProps> = ({ dura
             </Bar>
           </BarChart>
         </ResponsiveContainer>
-        
+
         <div className="mt-2 grid grid-cols-3 gap-2 text-xs">
           {durationGroups.map((group) => (
             <div key={group.duration} className="bg-gray-50 rounded p-1.5">

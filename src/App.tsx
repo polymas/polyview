@@ -12,12 +12,13 @@ import './App.css';
 function App() {
   const [walletAddress, setWalletAddress] = useState<string>('0x45deaaD70997b2998FBb9433B1819178e34B409C');
   const [loading, setLoading] = useState<boolean>(false);
-  const [, setTransactions] = useState<PolymarketTransaction[]>([]);
+  const [transactions, setTransactions] = useState<PolymarketTransaction[]>([]);
   const [propositions, setPropositions] = useState<PropositionPnL[]>([]);
   const [dailyPnL, setDailyPnL] = useState<DailyPnL[]>([]);
   const [statistics, setStatistics] = useState<Statistics | null>(null);
   const [holdingDurations, setHoldingDurations] = useState<HoldingDuration[]>([]);
   const [currentMonth, setCurrentMonth] = useState<Date>(new Date());
+  const [statisticsDays, setStatisticsDays] = useState<number>(30);  // 统计天数：7天或30天
 
   const handleSearch = async () => {
     if (!walletAddress.trim()) {
@@ -40,7 +41,7 @@ function App() {
 
     try {
       const txData = await getWalletTransactions(walletAddress);
-      
+
       if (txData.length === 0) {
         alert('该钱包地址在 Polymarket 上没有找到交易记录');
         setLoading(false);
@@ -55,10 +56,10 @@ function App() {
       const daily = calculateDailyPnL(txData, props);
       setDailyPnL(daily);
 
-      const stats = calculateStatistics(props, txData);
+      const stats = calculateStatistics(props, txData, statisticsDays);
       setStatistics(stats);
 
-      const durations = calculateHoldingDurations(txData);
+      const durations = calculateHoldingDurations(txData, statisticsDays);
       setHoldingDurations(durations);
     } catch (error: any) {
       console.error('获取数据失败:', error);
@@ -89,7 +90,7 @@ function App() {
                 输入钱包地址，查看历史交易记录和盈亏分析
               </p>
             </div>
-            
+
             <div className="flex-shrink-0 flex items-center gap-2">
               <input
                 type="text"
@@ -106,6 +107,43 @@ function App() {
               >
                 {loading ? '加载中...' : '查询'}
               </button>
+              {/* 统计时间范围选择 */}
+              <div className="flex items-center gap-1 border border-gray-300 rounded-lg p-0.5">
+                <button
+                  onClick={() => {
+                    setStatisticsDays(7);
+                    if (propositions.length > 0 && transactions.length > 0) {
+                      const stats = calculateStatistics(propositions, transactions, 7);
+                      setStatistics(stats);
+                      const durations = calculateHoldingDurations(transactions, 7);
+                      setHoldingDurations(durations);
+                    }
+                  }}
+                  className={`px-3 py-1 text-xs rounded transition-colors ${statisticsDays === 7
+                    ? 'bg-blue-600 text-white'
+                    : 'bg-white text-gray-700 hover:bg-gray-50'
+                    }`}
+                >
+                  近7天
+                </button>
+                <button
+                  onClick={() => {
+                    setStatisticsDays(30);
+                    if (propositions.length > 0 && transactions.length > 0) {
+                      const stats = calculateStatistics(propositions, transactions, 30);
+                      setStatistics(stats);
+                      const durations = calculateHoldingDurations(transactions, 30);
+                      setHoldingDurations(durations);
+                    }
+                  }}
+                  className={`px-3 py-1 text-xs rounded transition-colors ${statisticsDays === 30
+                    ? 'bg-blue-600 text-white'
+                    : 'bg-white text-gray-700 hover:bg-gray-50'
+                    }`}
+                >
+                  近30天
+                </button>
+              </div>
             </div>
           </div>
         </header>
@@ -114,11 +152,11 @@ function App() {
           <div className="flex flex-col gap-3">
             {/* 上部分：统计和日历 */}
             <div className="flex-shrink-0">
-              <StatisticsComponent statistics={statistics} />
-              
+              <StatisticsComponent statistics={statistics} days={statisticsDays} />
+
               <div className="mt-3 grid grid-cols-1 lg:grid-cols-3 gap-3">
                 {/* 盈亏日历 */}
-                <div>
+                <div className="flex flex-col">
                   <div className="flex items-center justify-between mb-2">
                     <h2 className="text-base font-semibold text-gray-900">盈亏日历</h2>
                     <div className="flex gap-1">
@@ -136,11 +174,13 @@ function App() {
                       </button>
                     </div>
                   </div>
-                  <PnLCalendar dailyPnL={dailyPnL} currentMonth={currentMonth} />
+                  <div className="min-h-[320px]">
+                    <PnLCalendar dailyPnL={dailyPnL} currentMonth={currentMonth} />
+                  </div>
                 </div>
-                
+
                 {/* 交易额日历 */}
-                <div>
+                <div className="flex flex-col">
                   <div className="flex items-center justify-between mb-2">
                     <h2 className="text-base font-semibold text-gray-900">交易额日历</h2>
                     <div className="flex gap-1">
@@ -158,14 +198,18 @@ function App() {
                       </button>
                     </div>
                   </div>
-                  <TradingVolumeCalendar dailyPnL={dailyPnL} currentMonth={currentMonth} />
+                  <div className="min-h-[320px]">
+                    <TradingVolumeCalendar dailyPnL={dailyPnL} currentMonth={currentMonth} />
+                  </div>
                 </div>
-                
+
                 {/* 持仓时长分布 */}
                 {holdingDurations.length > 0 && (
-                  <div>
+                  <div className="flex flex-col">
                     <h2 className="text-base font-semibold text-gray-900 mb-2">持仓时长分布</h2>
-                    <HoldingDurationChart durations={holdingDurations} />
+                    <div className="min-h-[320px]">
+                      <HoldingDurationChart durations={holdingDurations} days={statisticsDays} />
+                    </div>
                   </div>
                 )}
               </div>

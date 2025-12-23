@@ -3,9 +3,10 @@ import { Statistics as StatisticsType } from '../types';
 
 interface StatisticsProps {
   statistics: StatisticsType;
+  days: number;  // 统计天数
 }
 
-export const Statistics: React.FC<StatisticsProps> = ({ statistics }) => {
+export const Statistics: React.FC<StatisticsProps> = ({ statistics, days }) => {
   const formatCurrency = (value: number) => {
     return `$${Math.abs(value).toFixed(2)}`;
   };
@@ -21,29 +22,31 @@ export const Statistics: React.FC<StatisticsProps> = ({ statistics }) => {
     return 'text-gray-600';
   };
 
+  const daysLabel = days === 7 ? '近7天' : '近30天';
+
   const stats = [
     {
-      label: '总投入',
+      label: `总投入（${daysLabel}）`,
       value: formatCurrency(statistics.totalInvested),
       color: 'text-gray-900',
     },
     {
-      label: '已收回',
+      label: `已收回（${daysLabel}）`,
       value: formatCurrency(statistics.totalReturned),
       color: 'text-gray-900',
     },
     {
-      label: '总盈亏',
+      label: `总盈亏（${daysLabel}）`,
       value: formatCurrency(statistics.totalPnL),
       color: getPnLClass(statistics.totalPnL),
     },
     {
-      label: '总收益率',
+      label: `总收益率（${daysLabel}）`,
       value: formatPercent(statistics.totalPnLPercent),
       color: getPnLClass(statistics.totalPnLPercent),
     },
     {
-      label: '年化收益率',
+      label: `年化收益率（${daysLabel}）`,
       value: formatPercent(statistics.annualizedReturn),
       color: getPnLClass(statistics.annualizedReturn),
       highlight: true,
@@ -70,9 +73,8 @@ export const Statistics: React.FC<StatisticsProps> = ({ statistics }) => {
       {stats.map((stat) => (
         <div
           key={stat.label}
-          className={`bg-white rounded-lg shadow-sm border border-gray-200 p-2 ${
-            stat.highlight ? 'ring-1 ring-blue-500' : ''
-          }`}
+          className={`bg-white rounded-lg shadow-sm border border-gray-200 p-2 ${stat.highlight ? 'ring-1 ring-blue-500' : ''
+            }`}
         >
           <div className="text-xs text-gray-500 mb-0.5">{stat.label}</div>
           <div className={`text-lg font-bold ${stat.color}`}>

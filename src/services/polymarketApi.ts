@@ -120,7 +120,7 @@ function transformSubgraphTrade(trade: any): PolymarketTransaction {
     timestamp,
     market: trade.market?.id || 'unknown',
     marketQuestion: trade.market?.question || 'Unknown Market',
-    outcome: trade.outcome || 'YES',
+    outcome: trade.outcome || '',
     type: isBuy ? 'BUY' : 'SELL',
     amount,
     price,
@@ -149,7 +149,7 @@ function transformClobFill(fill: any): PolymarketTransaction {
     timestamp,
     market: fill.market || fill.conditionId || 'unknown',
     marketQuestion: fill.question || fill.marketQuestion || 'Unknown Market',
-    outcome: fill.outcome || 'YES',
+    outcome: fill.outcome || '',
     type: isBuy ? 'BUY' : 'SELL',
     amount,
     price,
@@ -208,6 +208,8 @@ function transformActivityToTransaction(activity: any): PolymarketTransaction {
   // 3. 否则根据 size 的正负判断（size > 0 通常表示买入）
   // 4. 如果都没有，默认设为 BUY
   let isBuy = true;
+  const originalType = activity.type ? (activity.type.toUpperCase() === 'REDEEM' ? 'REDEEM' : 'TRADE') : 'TRADE';
+
   if (activity.type && activity.type.toUpperCase() === 'REDEEM') {
     isBuy = false; // REDEEM 视为卖出
   } else if (activity.side) {
@@ -227,12 +229,13 @@ function transformActivityToTransaction(activity: any): PolymarketTransaction {
     timestamp,
     market: activity.conditionId || activity.market || 'unknown',
     marketQuestion: activity.title || activity.question || 'Unknown Market',
-    outcome: activity.outcome || 'YES',
+    outcome: activity.outcome || '',  // 不强制设置YES，如果没有outcome就为空字符串
     type: isBuy ? 'BUY' : 'SELL',
     amount,
     price: calculatedPrice,
     totalCost,
     user: activity.proxyWallet || activity.user || '',
+    originalType: originalType as 'TRADE' | 'REDEEM',  // 保存原始类型
   };
 }
 

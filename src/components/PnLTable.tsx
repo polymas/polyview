@@ -13,8 +13,8 @@ type SortDirection = 'asc' | 'desc';
 export const PnLTable: React.FC<PnLTableProps> = ({ propositions }) => {
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage, setItemsPerPage] = useState(10);
-  const [sortField, setSortField] = useState<SortField>(null);
-  const [sortDirection, setSortDirection] = useState<SortDirection>('desc');
+  const [sortField, setSortField] = useState<SortField>('closeTime');  // 默认按平仓时间排序
+  const [sortDirection, setSortDirection] = useState<SortDirection>('desc');  // 默认倒序
   const [filterStatus, setFilterStatus] = useState<'ALL' | 'OPEN' | 'CLOSED'>('ALL');
 
   // 排序和分页数据
@@ -25,7 +25,7 @@ export const PnLTable: React.FC<PnLTableProps> = ({ propositions }) => {
       return prop.status === filterStatus;
     });
 
-    // 排序
+    // 排序（默认按平仓时间倒序，没有平仓时间的排在最后）
     if (sortField) {
       sorted.sort((a, b) => {
         let aValue: number | undefined;
@@ -35,13 +35,18 @@ export const PnLTable: React.FC<PnLTableProps> = ({ propositions }) => {
           aValue = a.openTime;
           bValue = b.openTime;
         } else if (sortField === 'closeTime') {
-          // 对于平仓时间，OPEN状态的排在最后
-          if (a.status === 'OPEN' && b.status === 'CLOSED') {
-            return sortDirection === 'asc' ? 1 : -1;
-          }
-          if (a.status === 'CLOSED' && b.status === 'OPEN') {
-            return sortDirection === 'asc' ? -1 : 1;
-          }
+          // 对于平仓时间，没有平仓时间的（OPEN状态或closeTime为undefined）排在最后
+          const aHasCloseTime = a.closeTime !== undefined;
+          const bHasCloseTime = b.closeTime !== undefined;
+
+          // 如果两个都没有平仓时间，保持原顺序
+          if (!aHasCloseTime && !bHasCloseTime) return 0;
+          // 如果a没有平仓时间，a排在最后
+          if (!aHasCloseTime) return 1;
+          // 如果b没有平仓时间，b排在最后
+          if (!bHasCloseTime) return -1;
+
+          // 两个都有平仓时间，正常排序
           aValue = a.closeTime;
           bValue = b.closeTime;
         }
@@ -113,12 +118,15 @@ export const PnLTable: React.FC<PnLTableProps> = ({ propositions }) => {
   };
 
   const formatCurrency = (value: number) => {
-    return `$${value.toFixed(2)}`;
+    if (Math.abs(value) >= 1000) {
+      return `$${(value / 1000).toFixed(1)}k`;
+    }
+    return `$${value.toFixed(0)}`;
   };
 
   const formatPercent = (value: number) => {
     const sign = value >= 0 ? '+' : '';
-    return `${sign}${value.toFixed(2)}%`;
+    return `${sign}${value.toFixed(1)}%`;
   };
 
   const getPnLClass = (pnl: number) => {
@@ -129,7 +137,8 @@ export const PnLTable: React.FC<PnLTableProps> = ({ propositions }) => {
 
   const formatDate = (timestamp?: number) => {
     if (!timestamp) return '-';
-    return format(new Date(timestamp), 'yyyy-MM-dd HH:mm', { locale: zhCN });
+    // 只显示月-日 时:分，更紧凑
+    return format(new Date(timestamp), 'MM-dd HH:mm', { locale: zhCN });
   };
 
   return (
@@ -144,8 +153,8 @@ export const PnLTable: React.FC<PnLTableProps> = ({ propositions }) => {
               setCurrentPage(1);
             }}
             className={`px-4 py-2 text-sm rounded-md border transition-colors ${filterStatus === 'ALL'
-                ? 'bg-blue-600 text-white border-blue-600'
-                : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'
+              ? 'bg-blue-600 text-white border-blue-600'
+              : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'
               }`}
           >
             全部 ({propositions.length})
@@ -156,8 +165,8 @@ export const PnLTable: React.FC<PnLTableProps> = ({ propositions }) => {
               setCurrentPage(1);
             }}
             className={`px-4 py-2 text-sm rounded-md border transition-colors ${filterStatus === 'CLOSED'
-                ? 'bg-blue-600 text-white border-blue-600'
-                : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'
+              ? 'bg-blue-600 text-white border-blue-600'
+              : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'
               }`}
           >
             已平仓 ({propositions.filter(p => p.status === 'CLOSED').length})
@@ -168,8 +177,8 @@ export const PnLTable: React.FC<PnLTableProps> = ({ propositions }) => {
               setCurrentPage(1);
             }}
             className={`px-4 py-2 text-sm rounded-md border transition-colors ${filterStatus === 'OPEN'
-                ? 'bg-blue-600 text-white border-blue-600'
-                : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'
+              ? 'bg-blue-600 text-white border-blue-600'
+              : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'
               }`}
           >
             持仓中 ({propositions.filter(p => p.status === 'OPEN').length})
@@ -179,105 +188,105 @@ export const PnLTable: React.FC<PnLTableProps> = ({ propositions }) => {
 
       {/* 表格 */}
       <div className="flex-1 overflow-auto min-h-0 border border-gray-200 rounded-lg">
-        <table className="min-w-full bg-white">
+        <table className="w-full bg-white table-fixed">
           <thead className="bg-gray-50 sticky top-0 z-10">
             <tr>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+              <th className="w-[25%] px-2 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                 命题
               </th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+              <th className="w-[8%] px-1 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                 结果
               </th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                <SortButton field="openTime" label="开仓时间" />
+              <th className="w-[10%] px-1 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                <SortButton field="openTime" label="开仓" />
               </th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                <SortButton field="closeTime" label="平仓时间" />
+              <th className="w-[10%] px-1 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                <SortButton field="closeTime" label="平仓" />
               </th>
-              <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                总投入
+              <th className="w-[8%] px-1 py-2 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
+                投入
               </th>
-              <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                已收回
+              <th className="w-[8%] px-1 py-2 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
+                收回
               </th>
-              <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                当前价值
+              <th className="w-[8%] px-1 py-2 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
+                价值
               </th>
-              <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
+              <th className="w-[8%] px-1 py-2 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
                 盈亏
               </th>
-              <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
+              <th className="w-[8%] px-1 py-2 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
                 收益率
               </th>
-              <th className="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">
+              <th className="w-[4%] px-1 py-2 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">
                 状态
               </th>
-              <th className="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">
-                交易次数
+              <th className="w-[3%] px-1 py-2 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">
+                次数
               </th>
             </tr>
           </thead>
           <tbody className="bg-white divide-y divide-gray-200">
             {sortedAndPaginatedData.map((prop, index) => (
               <tr key={`${prop.market}-${index}`} className="hover:bg-gray-50">
-                <td className="px-6 py-4 whitespace-nowrap">
-                  <div className="text-sm font-medium text-gray-900 max-w-md truncate">
+                <td className="px-2 py-2">
+                  <div className="text-sm font-medium text-gray-900 truncate" title={prop.question}>
                     {prop.question}
                   </div>
-                  <div className="text-xs text-gray-500">{prop.market}</div>
+                  <div className="text-xs text-gray-500 truncate" title={prop.market}>{prop.market}</div>
                 </td>
-                <td className="px-6 py-4">
+                <td className="px-1 py-2">
                   {prop.outcomes && prop.outcomes.length > 1 ? (
-                    <div className="flex flex-wrap gap-1">
+                    <div className="flex flex-wrap gap-0.5">
                       {prop.outcomes.map((outcome, idx) => (
                         <span
                           key={idx}
-                          className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-blue-100 text-blue-800"
+                          className="inline-flex items-center px-1 py-0.5 rounded text-xs font-medium bg-blue-100 text-blue-800"
                         >
                           {outcome}
                         </span>
                       ))}
                     </div>
                   ) : (
-                    <span className="px-2 py-1 text-xs font-semibold rounded-full bg-blue-100 text-blue-800">
-                      {prop.outcome || 'N/A'}
+                    <span className="px-1 py-0.5 text-xs font-semibold rounded-full bg-blue-100 text-blue-800">
+                      {prop.outcome || (prop.outcomes && prop.outcomes.length > 0 ? prop.outcomes.join(', ') : 'N/A')}
                     </span>
                   )}
                 </td>
-                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">
+                <td className="px-1 py-2 text-sm text-gray-600 truncate" title={formatDate(prop.openTime)}>
                   {formatDate(prop.openTime)}
                 </td>
-                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">
+                <td className="px-1 py-2 text-sm text-gray-600 truncate">
                   {prop.status === 'OPEN' ? (
                     <span className="text-gray-400">持仓中</span>
                   ) : (
-                    formatDate(prop.closeTime)
+                    <span title={formatDate(prop.closeTime)}>{formatDate(prop.closeTime)}</span>
                   )}
                 </td>
-                <td className="px-6 py-4 whitespace-nowrap text-right text-sm text-gray-900">
+                <td className="px-1 py-2 text-right text-sm text-gray-900">
                   {formatCurrency(prop.totalInvested)}
                 </td>
-                <td className="px-6 py-4 whitespace-nowrap text-right text-sm text-gray-900">
+                <td className="px-1 py-2 text-right text-sm text-gray-900">
                   {formatCurrency(prop.totalReturned)}
                 </td>
-                <td className="px-6 py-4 whitespace-nowrap text-right text-sm text-gray-900">
+                <td className="px-1 py-2 text-right text-sm text-gray-900">
                   {formatCurrency(prop.currentValue)}
                 </td>
-                <td className={`px-6 py-4 whitespace-nowrap text-right text-sm font-semibold ${getPnLClass(prop.pnl)}`}>
+                <td className={`px-1 py-2 text-right text-sm font-semibold ${getPnLClass(prop.pnl)}`}>
                   {formatCurrency(prop.pnl)}
                 </td>
-                <td className={`px-6 py-4 whitespace-nowrap text-right text-sm font-semibold ${getPnLClass(prop.pnl)}`}>
+                <td className={`px-1 py-2 text-right text-sm font-semibold ${getPnLClass(prop.pnl)}`}>
                   {formatPercent(prop.pnlPercent)}
                 </td>
-                <td className="px-6 py-4 whitespace-nowrap text-center">
-                  <span className={`px-2 py-1 text-xs font-semibold rounded-full ${prop.status === 'OPEN'
-                      ? 'bg-green-100 text-green-800'
-                      : 'bg-gray-100 text-gray-800'
+                <td className="px-1 py-2 text-center">
+                  <span className={`px-1 py-0.5 text-xs font-semibold rounded-full ${prop.status === 'OPEN'
+                    ? 'bg-green-100 text-green-800'
+                    : 'bg-gray-100 text-gray-800'
                     }`}>
-                    {prop.status === 'OPEN' ? '持仓中' : '已平仓'}
+                    {prop.status === 'OPEN' ? '持仓' : '已平'}
                   </span>
                 </td>
-                <td className="px-6 py-4 whitespace-nowrap text-center text-sm text-gray-900">
+                <td className="px-1 py-2 text-center text-sm text-gray-900">
                   {prop.transactions.length}
                 </td>
               </tr>
@@ -350,8 +359,8 @@ export const PnLTable: React.FC<PnLTableProps> = ({ propositions }) => {
                     key={pageNum}
                     onClick={() => handlePageChange(pageNum)}
                     className={`px-3 py-1 text-sm border rounded-md ${currentPage === pageNum
-                        ? 'bg-blue-600 text-white border-blue-600'
-                        : 'border-gray-300 hover:bg-gray-50'
+                      ? 'bg-blue-600 text-white border-blue-600'
+                      : 'border-gray-300 hover:bg-gray-50'
                       }`}
                   >
                     {pageNum}

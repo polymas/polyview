@@ -10,6 +10,7 @@ export interface PolymarketTransaction {
   price: number;
   totalCost: number;
   user: string;
+  originalType?: 'TRADE' | 'REDEEM';  // 原始类型，用于区分TRADE和REDEEM
 }
 
 // 命题盈亏数据
@@ -47,7 +48,7 @@ export interface HoldingDuration {
   outcome: string;
   openTime: number;  // 开仓时间戳
   closeTime: number | null;  // 平仓时间戳（null表示仍持仓）
-  duration: number;  // 持仓时长（天）
+  duration: number;  // 持仓时长（小时）
   status: 'OPEN' | 'CLOSED';
   realizedPnL: number;  // 已实现盈亏
 }
