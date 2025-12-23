@@ -60,6 +60,13 @@ export function calculatePropositionPnL(
       const firstBuyTx = sortedTxs.find(tx => tx.type === 'BUY');
       const openTime = firstBuyTx ? firstBuyTx.timestamp : undefined;
 
+      // 计算平仓时间（最后卖出时间，如果已完全平仓）
+      let closeTime: number | undefined = undefined;
+      if (currentShares === 0) {
+        const lastSellTx = [...sortedTxs].reverse().find(tx => tx.type === 'SELL');
+        closeTime = lastSellTx ? lastSellTx.timestamp : undefined;
+      }
+
       propositions.push({
         market,
         question: outcomeTxs[0].marketQuestion,
@@ -72,6 +79,7 @@ export function calculatePropositionPnL(
         status: currentShares > 0 ? 'OPEN' : 'CLOSED',
         outcome,
         openTime,
+        closeTime,
       });
     });
   });

@@ -7,16 +7,59 @@ interface PnLTableProps {
   propositions: PropositionPnL[];
 }
 
+type SortField = 'openTime' | 'closeTime' | null;
+type SortDirection = 'asc' | 'desc';
+
 export const PnLTable: React.FC<PnLTableProps> = ({ propositions }) => {
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage, setItemsPerPage] = useState(10);
+  const [sortField, setSortField] = useState<SortField>(null);
+  const [sortDirection, setSortDirection] = useState<SortDirection>('desc');
 
-  // 计算分页数据
-  const paginatedData = useMemo(() => {
+  // 排序和分页数据
+  const sortedAndPaginatedData = useMemo(() => {
+    let sorted = [...propositions];
+    
+    // 排序
+    if (sortField) {
+      sorted.sort((a, b) => {
+        let aValue: number | undefined;
+        let bValue: number | undefined;
+        
+        if (sortField === 'openTime') {
+          aValue = a.openTime;
+          bValue = b.openTime;
+        } else if (sortField === 'closeTime') {
+          // 对于平仓时间，OPEN状态的排在最后
+          if (a.status === 'OPEN' && b.status === 'CLOSED') {
+            return sortDirection === 'asc' ? 1 : -1;
+          }
+          if (a.status === 'CLOSED' && b.status === 'OPEN') {
+            return sortDirection === 'asc' ? -1 : 1;
+          }
+          aValue = a.closeTime;
+          bValue = b.closeTime;
+        }
+        
+        // 处理 undefined 值（未开仓或未平仓）
+        if (aValue === undefined && bValue === undefined) return 0;
+        if (aValue === undefined) return sortDirection === 'asc' ? 1 : -1;
+        if (bValue === undefined) return sortDirection === 'asc' ? -1 : 1;
+        
+        // 正常排序
+        if (sortDirection === 'asc') {
+          return aValue - bValue;
+        } else {
+          return bValue - aValue;
+        }
+      });
+    }
+    
+    // 分页
     const startIndex = (currentPage - 1) * itemsPerPage;
     const endIndex = startIndex + itemsPerPage;
-    return propositions.slice(startIndex, endIndex);
-  }, [propositions, currentPage, itemsPerPage]);
+    return sorted.slice(startIndex, endIndex);
+  }, [propositions, currentPage, itemsPerPage, sortField, sortDirection]);
 
   const totalPages = Math.ceil(propositions.length / itemsPerPage);
 
@@ -25,6 +68,41 @@ export const PnLTable: React.FC<PnLTableProps> = ({ propositions }) => {
       setCurrentPage(page);
     }
   };
+
+  const handleSort = (field: SortField) => {
+    if (sortField === field) {
+      // 切换排序方向
+      setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc');
+    } else {
+      // 设置新的排序字段
+      setSortField(field);
+      setSortDirection('desc'); // 默认降序
+    }
+    setCurrentPage(1); // 重置到第一页
+  };
+
+  const SortButton: React.FC<{ field: SortField; label: string }> = ({ field, label }) => {
+    const isActive = sortField === field;
+    return (
+      <button
+        onClick={() => handleSort(field)}
+        className={`flex items-center gap-1 hover:text-gray-900 focus:outline-none transition-colors ${
+          isActive ? 'text-blue-600 font-semibold' : 'text-gray-500'
+        }`}
+        title={`点击${isActive ? '切换' : '按'}${label}排序`}
+      >
+        <span>{label}</span>
+        <span className={`text-xs ${isActive ? 'text-blue-600' : 'text-gray-400'}`}>
+          {isActive ? (
+            sortDirection === 'asc' ? '↑' : '↓'
+          ) : (
+            '↕'
+          )}
+        </span>
+      </button>
+    );
+  };
+
   const formatCurrency = (value: number) => {
     return `$${value.toFixed(2)}`;
   };
@@ -59,7 +137,10 @@ export const PnLTable: React.FC<PnLTableProps> = ({ propositions }) => {
                 结果
               </th>
               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                开仓时间
+                <SortButton field="openTime" label="开仓时间" />
+              </th>
+              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                <SortButton field="closeTime" label="平仓时间" />
               </th>
               <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
                 总投入
@@ -85,7 +166,7 @@ export const PnLTable: React.FC<PnLTableProps> = ({ propositions }) => {
             </tr>
           </thead>
           <tbody className="bg-white divide-y divide-gray-200">
-            {paginatedData.map((prop, index) => (
+            {sortedAndPaginatedData.map((prop, index) => (
               <tr key={`${prop.market}-${prop.outcome}-${index}`} className="hover:bg-gray-50">
                 <td className="px-6 py-4 whitespace-nowrap">
                   <div className="text-sm font-medium text-gray-900 max-w-md truncate">
@@ -100,6 +181,13 @@ export const PnLTable: React.FC<PnLTableProps> = ({ propositions }) => {
                 </td>
                 <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">
                   {formatDate(prop.openTime)}
+                </td>
+                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">
+                  {prop.status === 'OPEN' ? (
+                    <span className="text-gray-400">持仓中</span>
+                  ) : (
+                    formatDate(prop.closeTime)
+                  )}
                 </td>
                 <td className="px-6 py-4 whitespace-nowrap text-right text-sm text-gray-900">
                   {formatCurrency(prop.totalInvested)}

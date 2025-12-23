@@ -25,6 +25,7 @@ export interface PropositionPnL {
   status: 'OPEN' | 'CLOSED';
   outcome?: string;
   openTime?: number;  // 开仓时间戳
+  closeTime?: number;  // 平仓时间戳（最后卖出时间，OPEN状态为undefined）
 }
 
 // 每日盈亏数据
