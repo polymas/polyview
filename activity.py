@@ -496,8 +496,36 @@ def get_all_user_activity(
         # 获取缓存中最新的时间戳
         latest_timestamp = cache_manager.get_latest_timestamp(user)
 
-        # 如果缓存中有数据，只需要获取更新的数据
-        # 但由于 API 不支持按时间戳过滤，我们需要获取最新的数据并合并
+        # 如果缓存中有数据，先返回缓存数据（避免等待 API 请求）
+        if cached_data:
+            logger.info(f"从缓存返回 {len(cached_data)} 条记录")
+            # 尝试更新缓存（不阻塞响应）
+            try:
+                # 获取最新的数据（从 offset=0 开始），设置较短的超时
+                latest_data = _fetch_user_activity_from_api(
+                    user=user,
+                    limit=100,  # 获取一批最新数据
+                    offset=0,
+                    sort_by=sort_by,
+                    sort_direction=sort_direction,
+                    exclude_deposits_withdrawals=exclude_deposits_withdrawals
+                )
+                
+                if latest_data:
+                    # 更新缓存
+                    cache_manager.save_activities(user, latest_data)
+                    logger.info(f"缓存已更新，新增 {len(latest_data)} 条记录")
+            except Exception as e:
+                # API 更新失败不影响返回缓存数据
+                logger.warning(f"更新缓存失败，继续使用缓存数据: {str(e)}")
+            
+            # 返回缓存数据
+            if max_records:
+                return cached_data[:max_records]
+            return cached_data
+
+        # 如果缓存中没有数据，从 API 获取
+        logger.info("缓存中没有数据，从 API 获取")
         try:
             # 获取最新的数据（从 offset=0 开始）
             latest_data = _fetch_user_activity_from_api(
@@ -512,53 +540,16 @@ def get_all_user_activity(
             if latest_data:
                 # 更新缓存
                 cache_manager.save_activities(user, latest_data)
-
-                # 合并缓存数据和新数据，去重
-                # 使用 transactionHash + timestamp 作为唯一标识
-                seen = set()
-                merged_data = []
-
-                # 先添加新数据
-                for item in latest_data:
-                    key = (item.get('transactionHash', ''),
-                           item.get('timestamp', 0))
-                    if key not in seen:
-                        seen.add(key)
-                        merged_data.append(item)
-
-                # 再添加缓存中不在新数据中的记录
-                for item in cached_data:
-                    key = (item.get('transactionHash', ''),
-                           item.get('timestamp', 0))
-                    if key not in seen:
-                        seen.add(key)
-                        merged_data.append(item)
-
-                # 按时间戳排序
-                merged_data.sort(
-                    key=lambda x: x.get('timestamp', 0),
-                    reverse=(sort_direction == "DESC")
-                )
-
-                # 应用最大记录数限制
+                # 返回数据
                 if max_records:
-                    merged_data = merged_data[:max_records]
-
-                return merged_data
+                    return latest_data[:max_records]
+                return latest_data
             else:
-                # 如果没有新数据，返回缓存数据
-                if max_records:
-                    return cached_data[:max_records]
-                return cached_data
+                # 如果没有数据，返回空列表
+                return []
 
         except Exception as e:
-            logger.error(f"获取最新数据失败: {str(e)}", exc_info=True)
-            # 如果 API 请求失败，返回缓存数据
-            if cached_data:
-                logger.info(f"使用缓存数据，共 {len(cached_data)} 条记录")
-                if max_records:
-                    return cached_data[:max_records]
-                return cached_data
+            logger.error(f"获取数据失败: {str(e)}", exc_info=True)
             raise HTTPException(
                 status_code=500,
                 detail=f"获取数据时出错: {str(e)}"
