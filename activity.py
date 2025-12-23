@@ -4,10 +4,13 @@ Polymarket 用户活动 HTTP 服务
 """
 
 import requests
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
 import sqlite3
 import json
 import os
 import logging
+import time
 from typing import List, Dict, Any, Optional
 from datetime import datetime
 from fastapi import FastAPI, HTTPException, Query
@@ -300,23 +303,74 @@ def _fetch_user_activity_from_api(
         "excludeDepositsWithdrawals": str(exclude_deposits_withdrawals).lower()
     }
 
-    try:
-        logger.info(f"请求 Polymarket API: {BASE_URL}/v1/activity, 参数: {params}")
-        response = requests.get(
-            f"{BASE_URL}/v1/activity", params=params, timeout=30)
-        response.raise_for_status()
-        result = response.json()
-        logger.info(f"API 返回 {len(result) if isinstance(result, list) else 'N/A'} 条记录")
-        return result
-    except requests.exceptions.RequestException as e:
-        logger.error(f"Polymarket API 请求失败: {str(e)}")
-        if hasattr(e, 'response') and e.response is not None:
-            logger.error(f"响应状态码: {e.response.status_code}")
-            logger.error(f"响应内容: {e.response.text}")
-        raise HTTPException(
-            status_code=500,
-            detail=f"Polymarket API 请求失败: {str(e)}"
-        )
+    # 配置重试策略
+    retry_strategy = Retry(
+        total=3,  # 最多重试3次
+        backoff_factor=1,  # 重试间隔：1秒、2秒、4秒
+        status_forcelist=[429, 500, 502, 503, 504],  # 这些状态码会触发重试
+        allowed_methods=["GET"]
+    )
+    adapter = HTTPAdapter(max_retries=retry_strategy)
+    
+    # 创建 session 并配置重试
+    session = requests.Session()
+    session.mount("https://", adapter)
+    
+    # 设置请求头
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36",
+        "Accept": "application/json",
+    }
+    
+    max_retries = 3
+    retry_delay = 2  # 秒
+    
+    for attempt in range(max_retries):
+        try:
+            logger.info(f"请求 Polymarket API (尝试 {attempt + 1}/{max_retries}): {BASE_URL}/v1/activity, 参数: {params}")
+            response = session.get(
+                f"{BASE_URL}/v1/activity",
+                params=params,
+                headers=headers,
+                timeout=(10, 30)  # (连接超时, 读取超时)
+            )
+            response.raise_for_status()
+            result = response.json()
+            logger.info(f"API 返回 {len(result) if isinstance(result, list) else 'N/A'} 条记录")
+            return result
+        except requests.exceptions.ConnectionError as e:
+            logger.warning(f"连接错误 (尝试 {attempt + 1}/{max_retries}): {str(e)}")
+            if attempt < max_retries - 1:
+                wait_time = retry_delay * (attempt + 1)
+                logger.info(f"等待 {wait_time} 秒后重试...")
+                time.sleep(wait_time)
+            else:
+                logger.error(f"所有重试都失败了: {str(e)}")
+                raise HTTPException(
+                    status_code=500,
+                    detail=f"Polymarket API 连接失败，已重试 {max_retries} 次: {str(e)}"
+                )
+        except requests.exceptions.Timeout as e:
+            logger.warning(f"请求超时 (尝试 {attempt + 1}/{max_retries}): {str(e)}")
+            if attempt < max_retries - 1:
+                wait_time = retry_delay * (attempt + 1)
+                logger.info(f"等待 {wait_time} 秒后重试...")
+                time.sleep(wait_time)
+            else:
+                logger.error(f"所有重试都失败了: {str(e)}")
+                raise HTTPException(
+                    status_code=500,
+                    detail=f"Polymarket API 请求超时，已重试 {max_retries} 次: {str(e)}"
+                )
+        except requests.exceptions.RequestException as e:
+            logger.error(f"Polymarket API 请求失败: {str(e)}")
+            if hasattr(e, 'response') and e.response is not None:
+                logger.error(f"响应状态码: {e.response.status_code}")
+                logger.error(f"响应内容: {e.response.text[:500]}")  # 只记录前500字符
+            raise HTTPException(
+                status_code=500,
+                detail=f"Polymarket API 请求失败: {str(e)}"
+            )
 
 
 def get_user_activity(
@@ -513,7 +567,8 @@ def get_all_user_activity(
     offset = 0
     batch_size = min(batch_size, 500)  # API 限制最大 500
 
-    logger.info(f"开始循环获取所有数据，batch_size={batch_size}, max_records={max_records}")
+    logger.info(
+        f"开始循环获取所有数据，batch_size={batch_size}, max_records={max_records}")
 
     while True:
         try:
