@@ -203,11 +203,14 @@ function transformActivityToTransaction(activity: any): PolymarketTransaction {
   const price = parseFloat(activity.price || '0');
 
   // 判断买入/卖出：
-  // 1. 如果有 side 字段，直接使用
-  // 2. 否则根据 size 的正负判断（size > 0 通常表示买入）
-  // 3. 如果都没有，默认设为 BUY
+  // 1. 如果 type 是 REDEEM，视为卖出
+  // 2. 如果有 side 字段，直接使用
+  // 3. 否则根据 size 的正负判断（size > 0 通常表示买入）
+  // 4. 如果都没有，默认设为 BUY
   let isBuy = true;
-  if (activity.side) {
+  if (activity.type && activity.type.toUpperCase() === 'REDEEM') {
+    isBuy = false; // REDEEM 视为卖出
+  } else if (activity.side) {
     isBuy = activity.side.toUpperCase() === 'BUY';
   } else if (size !== 0) {
     isBuy = size > 0;
@@ -252,7 +255,7 @@ export async function getWalletTransactions(
 
     if (activities && activities.length > 0) {
       const transactions = activities
-        .filter((activity: any) => activity.type === 'TRADE')  // 只处理交易类型
+        .filter((activity: any) => activity.type === 'TRADE' || activity.type === 'REDEEM')  // 处理交易和赎回类型
         .map(transformActivityToTransaction);
 
       // 按时间戳排序（从旧到新）
