@@ -327,18 +327,58 @@ def _fetch_user_activity_from_api(
 
     for attempt in range(max_retries):
         try:
-            logger.info(
-                f"请求 Polymarket API (尝试 {attempt + 1}/{max_retries}): {BASE_URL}/v1/activity, 参数: {params}")
+            request_url = f"{BASE_URL}/v1/activity"
+            request_log = f"请求 Polymarket API (尝试 {attempt + 1}/{max_retries}): {request_url}\n参数: {params}\nHeaders: {headers}\n"
+            logger.info(request_log.strip())
+
             response = session.get(
-                f"{BASE_URL}/v1/activity",
+                request_url,
                 params=params,
                 headers=headers,
                 timeout=(10, 30)  # (连接超时, 读取超时)
             )
             response.raise_for_status()
             result = response.json()
-            logger.info(
-                f"API 返回 {len(result) if isinstance(result, list) else 'N/A'} 条记录")
+
+            response_log = f"API 返回 {len(result) if isinstance(result, list) else 'N/A'} 条记录\n状态码: {response.status_code}\n响应头: {dict(response.headers)}\n"
+            logger.info(response_log.strip())
+
+            # 如果是首次请求（offset=0）且返回了数据，保存请求和响应日志到文件
+            if offset == 0 and result and isinstance(result, list) and len(result) > 0:
+                try:
+                    import json
+                    from datetime import datetime
+                    log_file = f"api_debug_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log"
+                    with open(log_file, 'w', encoding='utf-8') as f:
+                        f.write("=" * 80 + "\n")
+                        f.write(f"首次500条数据请求和响应日志\n")
+                        f.write(
+                            f"时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+                        f.write("=" * 80 + "\n\n")
+                        f.write("请求信息:\n")
+                        f.write("-" * 80 + "\n")
+                        f.write(f"URL: {request_url}\n")
+                        f.write(
+                            f"参数: {json.dumps(params, indent=2, ensure_ascii=False)}\n")
+                        f.write(
+                            f"Headers: {json.dumps(headers, indent=2, ensure_ascii=False)}\n")
+                        f.write("\n响应信息:\n")
+                        f.write("-" * 80 + "\n")
+                        f.write(f"状态码: {response.status_code}\n")
+                        f.write(
+                            f"响应头: {json.dumps(dict(response.headers), indent=2, ensure_ascii=False)}\n")
+                        f.write(f"返回记录数: {len(result)}\n")
+                        f.write("\n响应数据 (前10条):\n")
+                        f.write("-" * 80 + "\n")
+                        f.write(json.dumps(
+                            result[:10], indent=2, ensure_ascii=False))
+                        f.write("\n\n完整响应数据:\n")
+                        f.write("-" * 80 + "\n")
+                        f.write(json.dumps(result, indent=2, ensure_ascii=False))
+                    logger.info(f"已保存首次请求日志到: {log_file}")
+                except Exception as e:
+                    logger.warning(f"保存请求日志失败: {str(e)}")
+
             return result
         except requests.exceptions.ConnectionError as e:
             logger.warning(f"连接错误 (尝试 {attempt + 1}/{max_retries}): {str(e)}")
@@ -529,21 +569,21 @@ def get_all_user_activity(
 
                 if filtered_first_batch:
                     # 检查第一批数据是否都在缓存中
+                    # 使用 (transactionHash, conditionId) 作为唯一键
                     cached_keys = set()
                     for item in cached_data:
                         timestamp = item.get('timestamp', 0)
                         if timestamp > 1e10:
                             timestamp = timestamp // 1000
                         if timestamp >= three_months_ago_timestamp:
-                            key = (item.get('transactionHash', ''), timestamp)
+                            key = (item.get('transactionHash', ''),
+                                   item.get('conditionId', ''))
                             cached_keys.add(key)
 
                     first_batch_in_cache = True
                     for item in filtered_first_batch:
-                        timestamp = item.get('timestamp', 0)
-                        if timestamp > 1e10:
-                            timestamp = timestamp // 1000
-                        key = (item.get('transactionHash', ''), timestamp)
+                        key = (item.get('transactionHash', ''),
+                               item.get('conditionId', ''))
                         if key not in cached_keys:
                             first_batch_in_cache = False
                             break
@@ -645,11 +685,12 @@ def get_all_user_activity(
                         break
 
                 # 去重后再添加到总列表（避免 API 返回重复数据）
+                # 使用 (transactionHash, conditionId) 作为唯一键
                 seen_in_batch = set()
                 unique_filtered_batch = []
                 for item in filtered_batch:
                     key = (item.get('transactionHash', ''),
-                           item.get('timestamp', 0))
+                           item.get('conditionId', ''))
                     if key not in seen_in_batch:
                         seen_in_batch.add(key)
                         unique_filtered_batch.append(item)
@@ -724,7 +765,7 @@ def get_all_user_activity(
         three_months_ago = datetime.now() - timedelta(days=90)
         three_months_ago_timestamp = int(three_months_ago.timestamp())
 
-        # 使用 transactionHash + timestamp 作为唯一标识去重
+        # 使用 transactionHash + conditionId 作为唯一标识去重
         seen = set()
         merged_data = []
         api_added_count = 0
@@ -735,7 +776,7 @@ def get_all_user_activity(
         # 先添加 API 获取的数据（已经过滤过3个月）
         for item in all_activities:
             key = (item.get('transactionHash', ''),
-                   item.get('timestamp', 0))
+                   item.get('conditionId', ''))
             if key not in seen:
                 seen.add(key)
                 merged_data.append(item)
@@ -756,7 +797,7 @@ def get_all_user_activity(
             # 只添加近3个月的数据
             if timestamp >= three_months_ago_timestamp:
                 key = (item.get('transactionHash', ''),
-                       item.get('timestamp', 0))
+                       item.get('conditionId', ''))
                 if key not in seen:
                     seen.add(key)
                     merged_data.append(item)
