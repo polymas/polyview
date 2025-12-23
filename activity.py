@@ -297,7 +297,7 @@ def _fetch_user_activity_from_api(
 
     try:
         response = requests.get(
-            f"{BASE_URL}/activity", params=params, timeout=30)
+            f"{BASE_URL}/v1/activity", params=params, timeout=30)
         response.raise_for_status()
         return response.json()
     except requests.exceptions.RequestException as e:
@@ -598,7 +598,8 @@ async def get_activity(
     sort_direction: str = Query(
         "DESC", pattern="^(ASC|DESC)$", description="排序方向（ASC 或 DESC）"),
     use_cache: bool = Query(True, description="是否使用缓存（默认True）"),
-    exclude_deposits_withdrawals: bool = Query(True, description="是否排除存款和提现记录（默认True）")
+    exclude_deposits_withdrawals: bool = Query(
+        True, description="是否排除存款和提现记录（默认True）")
 ):
     """
     获取用户活动记录（分页或全部）
@@ -683,7 +684,8 @@ async def get_all_activity(
     max_records: Optional[int] = Query(
         None, ge=1, description="最大获取记录数（None表示获取所有）"),
     use_cache: bool = Query(True, description="是否使用缓存（默认True）"),
-    exclude_deposits_withdrawals: bool = Query(True, description="是否排除存款和提现记录（默认True）")
+    exclude_deposits_withdrawals: bool = Query(
+        True, description="是否排除存款和提现记录（默认True）")
 ):
     """
     获取用户所有历史活动记录
