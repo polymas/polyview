@@ -7,6 +7,7 @@ import requests
 import sqlite3
 import json
 import os
+import logging
 from typing import List, Dict, Any, Optional
 from datetime import datetime
 from fastapi import FastAPI, HTTPException, Query
@@ -14,6 +15,10 @@ from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 import uvicorn
+
+# 配置日志
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 # Polymarket Data-API 基础 URL
 BASE_URL = "https://data-api.polymarket.com"
@@ -296,11 +301,18 @@ def _fetch_user_activity_from_api(
     }
 
     try:
+        logger.info(f"请求 Polymarket API: {BASE_URL}/v1/activity, 参数: {params}")
         response = requests.get(
             f"{BASE_URL}/v1/activity", params=params, timeout=30)
         response.raise_for_status()
-        return response.json()
+        result = response.json()
+        logger.info(f"API 返回 {len(result) if isinstance(result, list) else 'N/A'} 条记录")
+        return result
     except requests.exceptions.RequestException as e:
+        logger.error(f"Polymarket API 请求失败: {str(e)}")
+        if hasattr(e, 'response') and e.response is not None:
+            logger.error(f"响应状态码: {e.response.status_code}")
+            logger.error(f"响应内容: {e.response.text}")
         raise HTTPException(
             status_code=500,
             detail=f"Polymarket API 请求失败: {str(e)}"
@@ -484,8 +496,10 @@ def get_all_user_activity(
                 return cached_data
 
         except Exception as e:
+            logger.error(f"获取最新数据失败: {str(e)}", exc_info=True)
             # 如果 API 请求失败，返回缓存数据
             if cached_data:
+                logger.info(f"使用缓存数据，共 {len(cached_data)} 条记录")
                 if max_records:
                     return cached_data[:max_records]
                 return cached_data
@@ -499,9 +513,12 @@ def get_all_user_activity(
     offset = 0
     batch_size = min(batch_size, 500)  # API 限制最大 500
 
+    logger.info(f"开始循环获取所有数据，batch_size={batch_size}, max_records={max_records}")
+
     while True:
         try:
             # 获取当前批次
+            logger.info(f"获取第 {offset // batch_size + 1} 批数据，offset={offset}")
             batch = _fetch_user_activity_from_api(
                 user=user,
                 limit=batch_size,
@@ -511,20 +528,29 @@ def get_all_user_activity(
                 exclude_deposits_withdrawals=exclude_deposits_withdrawals
             )
 
+            # 检查返回的数据格式
+            if not isinstance(batch, list):
+                logger.error(f"API 返回的数据格式错误，期望列表，实际: {type(batch)}")
+                raise ValueError(f"API 返回的数据格式错误: {type(batch)}")
+
             # 如果没有数据，说明已经获取完所有记录
             if not batch or len(batch) == 0:
+                logger.info("没有更多数据，停止获取")
                 break
 
             # 添加到总列表
             all_activities.extend(batch)
+            logger.info(f"已获取 {len(all_activities)} 条记录")
 
             # 如果返回的记录数少于 batch_size，说明已经是最后一批
             if len(batch) < batch_size:
+                logger.info("已获取最后一批数据")
                 break
 
             # 如果设置了最大记录数限制
             if max_records and len(all_activities) >= max_records:
                 all_activities = all_activities[:max_records]
+                logger.info(f"达到最大记录数限制 {max_records}")
                 break
 
             # 更新偏移量，准备获取下一批
@@ -532,14 +558,19 @@ def get_all_user_activity(
 
             # 安全限制：防止无限循环（API 限制 offset 最大 10000）
             if offset > 10000:
+                logger.warning("达到 offset 上限 10000，停止获取")
                 break
 
+        except HTTPException:
+            raise
         except Exception as e:
+            logger.error(f"获取数据时出错: {str(e)}", exc_info=True)
             raise HTTPException(
                 status_code=500,
                 detail=f"获取数据时出错: {str(e)}"
             )
 
+    logger.info(f"最终获取 {len(all_activities)} 条记录")
     return all_activities
 
 
@@ -661,6 +692,7 @@ async def get_activity(
     except HTTPException:
         raise
     except Exception as e:
+        logger.error(f"获取用户活动失败: {str(e)}", exc_info=True)
         raise HTTPException(
             status_code=500,
             detail=f"获取用户活动失败: {str(e)}"
@@ -726,6 +758,7 @@ async def get_all_activity(
     except HTTPException:
         raise
     except Exception as e:
+        logger.error(f"获取用户活动失败: {str(e)}", exc_info=True)
         raise HTTPException(
             status_code=500,
             detail=f"获取用户活动失败: {str(e)}"
