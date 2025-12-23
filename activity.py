@@ -311,23 +311,24 @@ def _fetch_user_activity_from_api(
         allowed_methods=["GET"]
     )
     adapter = HTTPAdapter(max_retries=retry_strategy)
-    
+
     # 创建 session 并配置重试
     session = requests.Session()
     session.mount("https://", adapter)
-    
+
     # 设置请求头
     headers = {
         "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36",
         "Accept": "application/json",
     }
-    
+
     max_retries = 3
     retry_delay = 2  # 秒
-    
+
     for attempt in range(max_retries):
         try:
-            logger.info(f"请求 Polymarket API (尝试 {attempt + 1}/{max_retries}): {BASE_URL}/v1/activity, 参数: {params}")
+            logger.info(
+                f"请求 Polymarket API (尝试 {attempt + 1}/{max_retries}): {BASE_URL}/v1/activity, 参数: {params}")
             response = session.get(
                 f"{BASE_URL}/v1/activity",
                 params=params,
@@ -336,7 +337,8 @@ def _fetch_user_activity_from_api(
             )
             response.raise_for_status()
             result = response.json()
-            logger.info(f"API 返回 {len(result) if isinstance(result, list) else 'N/A'} 条记录")
+            logger.info(
+                f"API 返回 {len(result) if isinstance(result, list) else 'N/A'} 条记录")
             return result
         except requests.exceptions.ConnectionError as e:
             logger.warning(f"连接错误 (尝试 {attempt + 1}/{max_retries}): {str(e)}")
@@ -500,7 +502,7 @@ def get_all_user_activity(
             # 获取最新的数据（从 offset=0 开始）
             latest_data = _fetch_user_activity_from_api(
                 user=user,
-                limit=500,  # 获取一批最新数据
+                limit=100,  # 获取一批最新数据
                 offset=0,
                 sort_by=sort_by,
                 sort_direction=sort_direction,
@@ -713,7 +715,7 @@ async def get_activity(
                 user=user,
                 sort_by=sort_by,
                 sort_direction=sort_direction,
-                batch_size=500,  # 使用最大批次大小以提高效率
+                batch_size=100,  # 每次获取100条记录
                 max_records=None,  # 不限制最大记录数
                 use_cache=use_cache,
                 exclude_deposits_withdrawals=exclude_deposits_withdrawals
