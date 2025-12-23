@@ -53,43 +53,6 @@ export const HoldingDurationChart: React.FC<HoldingDurationChartProps> = ({ dura
     });
   }, [durations]);
 
-  // 按代币统计持仓时长
-  const tokenDurations = useMemo(() => {
-    const tokenMap = new Map<string, { durations: number[]; totalPnL: number; question: string }>();
-    
-    durations.forEach((duration) => {
-      const key = `${duration.market}-${duration.outcome}`;
-      
-      if (!tokenMap.has(key)) {
-        tokenMap.set(key, {
-          durations: [],
-          totalPnL: 0,
-          question: duration.question,
-        });
-      }
-      
-      const token = tokenMap.get(key)!;
-      token.durations.push(duration.duration);
-      token.totalPnL += duration.realizedPnL;
-    });
-    
-    return Array.from(tokenMap.entries()).map(([key, data]) => {
-      const avgDuration = data.durations.reduce((a, b) => a + b, 0) / data.durations.length;
-      const maxDuration = Math.max(...data.durations);
-      const minDuration = Math.min(...data.durations);
-      
-      return {
-        token: key,
-        question: data.question,
-        avgDuration: Math.round(avgDuration),
-        maxDuration,
-        minDuration,
-        count: data.durations.length,
-        totalPnL: data.totalPnL,
-      };
-    }).sort((a, b) => b.avgDuration - a.avgDuration).slice(0, 20);  // 显示前20个
-  }, [durations]);
-
   const getPnLColor = (value: number) => {
     if (value > 0) return '#10b981';  // green
     if (value < 0) return '#ef4444';  // red

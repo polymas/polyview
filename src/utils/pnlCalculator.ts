@@ -3,84 +3,177 @@ import { format, differenceInDays } from 'date-fns';
 
 /**
  * 计算每个命题的盈亏
+ * 通过 conditionId (market) 匹配买入卖出，REDEEM 算卖出
  */
 export function calculatePropositionPnL(
   transactions: PolymarketTransaction[]
 ): PropositionPnL[] {
-  // 按市场分组
-  const marketGroups = new Map<string, PolymarketTransaction[]>();
+  // 过滤掉 size=0 的交易
+  const validTransactions = transactions.filter(tx => tx.amount > 0);
 
-  transactions.forEach((tx) => {
-    if (!marketGroups.has(tx.market)) {
-      marketGroups.set(tx.market, []);
+  // 按 conditionId (market) 分组，同一个 conditionId 的所有交易一起计算
+  const conditionGroups = new Map<string, PolymarketTransaction[]>();
+
+  validTransactions.forEach((tx) => {
+    // market 字段存储的是 conditionId
+    const conditionId = tx.market;
+    if (!conditionGroups.has(conditionId)) {
+      conditionGroups.set(conditionId, []);
     }
-    marketGroups.get(tx.market)!.push(tx);
+    conditionGroups.get(conditionId)!.push(tx);
   });
 
   const propositions: PropositionPnL[] = [];
 
-  marketGroups.forEach((txs, market) => {
-    // 按 outcome 分组
-    const outcomeGroups = new Map<string, PolymarketTransaction[]>();
-
+  conditionGroups.forEach((txs, conditionId) => {
+    // 同一个 conditionId 的所有交易合并计算，不按 outcome 分组
+    // 收集所有不同的 outcome 用于显示
+    const outcomeSet = new Set<string>();
     txs.forEach((tx) => {
-      const key = `${tx.outcome}`;
-      if (!outcomeGroups.has(key)) {
-        outcomeGroups.set(key, []);
+      const outcomeRaw = tx.outcome || 'YES';
+      outcomeSet.add(outcomeRaw);
+    });
+    const outcomes = Array.from(outcomeSet);
+
+    // 使用所有交易一起计算
+    // 使用 FIFO 方法计算盈亏
+    const positions: Array<{ amount: number; cost: number; timestamp: number }> = [];
+    let totalInvested = 0;
+    let totalReturned = 0;
+    let currentShares = 0;
+    let realizedPnL = 0;
+
+    // 按时间排序
+    const sortedTxs = [...txs].sort((a, b) => a.timestamp - b.timestamp);
+
+    sortedTxs.forEach((tx) => {
+      if (tx.type === 'BUY') {
+        // 买入：添加到持仓队列
+        totalInvested += tx.totalCost;
+        currentShares += tx.amount;
+        positions.push({
+          amount: tx.amount,
+          cost: tx.totalCost,
+          timestamp: tx.timestamp,
+        });
+      } else if (tx.type === 'SELL') {
+        // 卖出（包括 REDEEM）：使用 FIFO 匹配买入
+        // 如果没有持仓，说明是卖空或只有REDEEM没有开仓，不计入盈利
+        if (positions.length > 0) {
+          let remainingAmount = tx.amount;
+          let sellRealizedPnL = 0;
+
+          while (remainingAmount > 0 && positions.length > 0) {
+            const position = positions[0];
+            const avgCost = position.cost / position.amount;
+
+            if (position.amount <= remainingAmount) {
+              // 完全平掉这个持仓
+              const sellValue = position.amount * tx.price;
+              const profit = sellValue - position.cost;
+              sellRealizedPnL += profit;
+              totalReturned += sellValue;
+              remainingAmount -= position.amount;
+              currentShares -= position.amount;
+              positions.shift();
+            } else {
+              // 部分平仓
+              const sellAmount = remainingAmount;
+              const sellValue = sellAmount * tx.price;
+              const cost = sellAmount * avgCost;
+              const profit = sellValue - cost;
+              sellRealizedPnL += profit;
+              totalReturned += sellValue;
+              position.amount -= sellAmount;
+              position.cost -= cost;
+              currentShares -= sellAmount;
+              remainingAmount = 0;
+            }
+          }
+
+          // 如果还有剩余卖出量，说明是卖空（简化处理）
+          if (remainingAmount > 0) {
+            const sellValue = remainingAmount * tx.price;
+            totalReturned += sellValue;
+            currentShares -= remainingAmount;
+            // 卖空收益（简化处理，不计算成本）
+            sellRealizedPnL += sellValue;
+          }
+
+          realizedPnL += sellRealizedPnL;
+        }
+        // 如果没有持仓，只有REDEEM没有开仓的情况，不计入盈利，但会记录平仓时间
       }
-      outcomeGroups.get(key)!.push(tx);
     });
 
-    outcomeGroups.forEach((outcomeTxs, outcome) => {
-      let totalInvested = 0;
-      let totalReturned = 0;
-      let currentShares = 0;
-
-      // 按时间排序
-      const sortedTxs = [...outcomeTxs].sort((a, b) => a.timestamp - b.timestamp);
-
-      sortedTxs.forEach((tx) => {
-        if (tx.type === 'BUY') {
-          totalInvested += tx.totalCost;
-          currentShares += tx.amount;
-        } else if (tx.type === 'SELL') {
-          totalReturned += tx.totalCost;
-          currentShares -= tx.amount;
-        }
-      });
-
-      // 计算当前价值（假设使用最后交易价格）
+    // 计算当前价值（使用最后交易价格，如果没有则使用平均成本）
+    let currentValue = 0;
+    if (currentShares > 0) {
       const lastTx = sortedTxs[sortedTxs.length - 1];
-      const currentValue = currentShares * lastTx.price;
-
-      const pnl = totalReturned + currentValue - totalInvested;
-      const pnlPercent = totalInvested > 0 ? (pnl / totalInvested) * 100 : 0;
-
-      // 计算开仓时间（首次买入时间）
-      const firstBuyTx = sortedTxs.find(tx => tx.type === 'BUY');
-      const openTime = firstBuyTx ? firstBuyTx.timestamp : undefined;
-
-      // 计算平仓时间（最后卖出时间，如果已完全平仓）
-      let closeTime: number | undefined = undefined;
-      if (currentShares === 0) {
-        const lastSellTx = [...sortedTxs].reverse().find(tx => tx.type === 'SELL');
-        closeTime = lastSellTx ? lastSellTx.timestamp : undefined;
+      if (lastTx && lastTx.price > 0) {
+        currentValue = currentShares * lastTx.price;
+      } else if (positions.length > 0) {
+        // 使用平均成本估算
+        const totalCost = positions.reduce((sum, p) => sum + p.cost, 0);
+        const totalAmount = positions.reduce((sum, p) => sum + p.amount, 0);
+        const avgCost = totalAmount > 0 ? totalCost / totalAmount : 0;
+        currentValue = currentShares * avgCost;
       }
+    }
 
-      propositions.push({
-        market,
-        question: outcomeTxs[0].marketQuestion,
-        totalInvested,
-        totalReturned,
-        currentValue,
-        pnl,
-        pnlPercent,
-        transactions: sortedTxs,
-        status: currentShares > 0 ? 'OPEN' : 'CLOSED',
-        outcome,
-        openTime,
-        closeTime,
-      });
+    // 计算开仓时间：以最早的一笔开仓（BUY）时间算
+    const buyTxs = sortedTxs.filter(tx => tx.type === 'BUY');
+    const openTime = buyTxs.length > 0
+      ? Math.min(...buyTxs.map(tx => tx.timestamp))
+      : undefined;
+
+    // 计算平仓时间：以最晚的一笔平仓（SELL）时间算
+    // 如果已完全平仓（status为CLOSED），或者只有REDEEM没有开仓，都显示平仓时间
+    const sellTxs = sortedTxs.filter(tx => tx.type === 'SELL');
+    let closeTime: number | undefined = undefined;
+    if (sellTxs.length > 0) {
+      // 判断是否完全平仓：currentShares为0或接近0（处理浮点数精度问题）
+      // 使用更宽松的条件：只要 currentShares 接近0就认为完全平仓
+      const isFullyClosed = Math.abs(currentShares) < 0.01;
+      // 或者没有开仓（只有REDEEM），也显示平仓时间
+      const onlyRedeem = buyTxs.length === 0 && sellTxs.length > 0;
+
+      if (isFullyClosed || onlyRedeem) {
+        closeTime = Math.max(...sellTxs.map(tx => tx.timestamp));
+      }
+    }
+
+    // PnL 只计算已实现的盈亏，未平仓的不算盈亏
+    // 如果完全平仓：PnL = totalReturned - totalInvested = realizedPnL
+    // 如果有持仓：PnL = realizedPnL（不包含未实现的持仓价值）
+    // 如果没有开仓（只有REDEEM）：PnL = 0（不计入盈利）
+    const pnl = buyTxs.length > 0 ? realizedPnL : 0;
+    const pnlPercent = totalInvested > 0 ? (pnl / totalInvested) * 100 : 0;
+
+    // 判断是否完全平仓：使用和 closeTime 一样的判断逻辑
+    // 如果 currentShares 接近0（处理浮点数精度问题），认为完全平仓
+    const isFullyClosed = Math.abs(currentShares) < 0.01;
+    const onlyRedeem = buyTxs.length === 0 && sellTxs.length > 0;
+    const status = (isFullyClosed || onlyRedeem) ? 'CLOSED' : (currentShares > 0 ? 'OPEN' : 'CLOSED');
+
+    // 使用第一个 outcome 作为主要显示（向后兼容）
+    const primaryOutcome = outcomes[0] || 'YES';
+
+    propositions.push({
+      market: conditionId,
+      question: txs[0].marketQuestion,
+      totalInvested,
+      totalReturned,
+      currentValue,
+      pnl,
+      pnlPercent,
+      realizedPnL: realizedPnL,  // 已实现盈亏（开平仓的盈亏）
+      transactions: sortedTxs,
+      status: status,
+      outcome: primaryOutcome,  // 向后兼容
+      outcomes: outcomes,  // 多个 outcome 列表
+      openTime,
+      closeTime,
     });
   });
 
@@ -94,10 +187,13 @@ export function calculateDailyPnL(
   transactions: PolymarketTransaction[],
   propositions: PropositionPnL[]
 ): DailyPnL[] {
+  // 过滤掉 size=0 的交易
+  const validTransactions = transactions.filter(tx => tx.amount > 0);
+
   const dailyMap = new Map<string, DailyPnL>();
 
   // 初始化每日数据
-  transactions.forEach((tx) => {
+  validTransactions.forEach((tx) => {
     const date = format(new Date(tx.timestamp), 'yyyy-MM-dd');
 
     if (!dailyMap.has(date)) {
@@ -203,6 +299,9 @@ export function calculateStatistics(
   propositions: PropositionPnL[],
   transactions: PolymarketTransaction[]
 ): Statistics {
+  // 过滤掉 size=0 的交易
+  const validTransactions = transactions.filter(tx => tx.amount > 0);
+
   const totalInvested = propositions.reduce(
     (sum, prop) => sum + prop.totalInvested,
     0
@@ -213,18 +312,17 @@ export function calculateStatistics(
     0
   );
 
-  const totalCurrentValue = propositions.reduce(
-    (sum, prop) => sum + prop.currentValue,
+  // 总盈亏按正常开平仓的盈亏计算（使用每个命题的已实现盈亏）
+  const totalPnL = propositions.reduce(
+    (sum, prop) => sum + prop.realizedPnL,
     0
   );
-
-  const totalPnL = totalReturned + totalCurrentValue - totalInvested;
   const totalPnLPercent = totalInvested > 0
     ? (totalPnL / totalInvested) * 100
     : 0;
 
   // 计算年化收益率
-  if (transactions.length === 0) {
+  if (validTransactions.length === 0) {
     return {
       totalInvested: 0,
       totalReturned: 0,
@@ -237,14 +335,14 @@ export function calculateStatistics(
     };
   }
 
-  const firstTx = transactions.reduce(
+  const firstTx = validTransactions.reduce(
     (earliest, tx) => tx.timestamp < earliest.timestamp ? tx : earliest,
-    transactions[0]
+    validTransactions[0]
   );
 
-  const lastTx = transactions.reduce(
+  const lastTx = validTransactions.reduce(
     (latest, tx) => tx.timestamp > latest.timestamp ? tx : latest,
-    transactions[0]
+    validTransactions[0]
   );
 
   const daysDiff = differenceInDays(
@@ -266,7 +364,7 @@ export function calculateStatistics(
     totalPnL,
     totalPnLPercent,
     annualizedReturn,
-    totalTransactions: transactions.length,
+    totalTransactions: validTransactions.length,
     activeMarkets,
     closedMarkets,
   };
@@ -278,13 +376,18 @@ export function calculateStatistics(
 export function calculateHoldingDurations(
   transactions: PolymarketTransaction[]
 ): HoldingDuration[] {
+  // 过滤掉 size=0 的交易
+  const validTransactions = transactions.filter(tx => tx.amount > 0);
+
   const durations: HoldingDuration[] = [];
 
   // 按市场和 outcome 分组
+  // 统一 outcome 格式，确保 "Yes" 和 "YES" 被视为同一个
   const marketGroups = new Map<string, PolymarketTransaction[]>();
 
-  transactions.forEach((tx) => {
-    const key = `${tx.market}-${tx.outcome}`;
+  validTransactions.forEach((tx) => {
+    const outcome = (tx.outcome || 'YES').toUpperCase();
+    const key = `${tx.market}-${outcome}`;
     if (!marketGroups.has(key)) {
       marketGroups.set(key, []);
     }

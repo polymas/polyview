@@ -15,17 +15,22 @@ export const PnLTable: React.FC<PnLTableProps> = ({ propositions }) => {
   const [itemsPerPage, setItemsPerPage] = useState(10);
   const [sortField, setSortField] = useState<SortField>(null);
   const [sortDirection, setSortDirection] = useState<SortDirection>('desc');
+  const [filterStatus, setFilterStatus] = useState<'ALL' | 'OPEN' | 'CLOSED'>('ALL');
 
   // 排序和分页数据
   const sortedAndPaginatedData = useMemo(() => {
-    let sorted = [...propositions];
-    
+    // 先过滤
+    let sorted = propositions.filter(prop => {
+      if (filterStatus === 'ALL') return true;
+      return prop.status === filterStatus;
+    });
+
     // 排序
     if (sortField) {
       sorted.sort((a, b) => {
         let aValue: number | undefined;
         let bValue: number | undefined;
-        
+
         if (sortField === 'openTime') {
           aValue = a.openTime;
           bValue = b.openTime;
@@ -40,12 +45,12 @@ export const PnLTable: React.FC<PnLTableProps> = ({ propositions }) => {
           aValue = a.closeTime;
           bValue = b.closeTime;
         }
-        
+
         // 处理 undefined 值（未开仓或未平仓）
         if (aValue === undefined && bValue === undefined) return 0;
         if (aValue === undefined) return sortDirection === 'asc' ? 1 : -1;
         if (bValue === undefined) return sortDirection === 'asc' ? -1 : 1;
-        
+
         // 正常排序
         if (sortDirection === 'asc') {
           return aValue - bValue;
@@ -54,14 +59,19 @@ export const PnLTable: React.FC<PnLTableProps> = ({ propositions }) => {
         }
       });
     }
-    
+
     // 分页
     const startIndex = (currentPage - 1) * itemsPerPage;
     const endIndex = startIndex + itemsPerPage;
     return sorted.slice(startIndex, endIndex);
-  }, [propositions, currentPage, itemsPerPage, sortField, sortDirection]);
+  }, [propositions, currentPage, itemsPerPage, sortField, sortDirection, filterStatus]);
 
-  const totalPages = Math.ceil(propositions.length / itemsPerPage);
+  const filteredPropositions = propositions.filter(prop => {
+    if (filterStatus === 'ALL') return true;
+    return prop.status === filterStatus;
+  });
+
+  const totalPages = Math.ceil(filteredPropositions.length / itemsPerPage);
 
   const handlePageChange = (page: number) => {
     if (page >= 1 && page <= totalPages) {
@@ -86,9 +96,8 @@ export const PnLTable: React.FC<PnLTableProps> = ({ propositions }) => {
     return (
       <button
         onClick={() => handleSort(field)}
-        className={`flex items-center gap-1 hover:text-gray-900 focus:outline-none transition-colors ${
-          isActive ? 'text-blue-600 font-semibold' : 'text-gray-500'
-        }`}
+        className={`flex items-center gap-1 hover:text-gray-900 focus:outline-none transition-colors ${isActive ? 'text-blue-600 font-semibold' : 'text-gray-500'
+          }`}
         title={`点击${isActive ? '切换' : '按'}${label}排序`}
       >
         <span>{label}</span>
@@ -125,6 +134,49 @@ export const PnLTable: React.FC<PnLTableProps> = ({ propositions }) => {
 
   return (
     <div className="flex flex-col h-full min-h-0">
+      {/* 过滤控件 */}
+      <div className="mb-4 flex items-center gap-4">
+        <span className="text-sm font-medium text-gray-700">状态过滤：</span>
+        <div className="flex gap-2">
+          <button
+            onClick={() => {
+              setFilterStatus('ALL');
+              setCurrentPage(1);
+            }}
+            className={`px-4 py-2 text-sm rounded-md border transition-colors ${filterStatus === 'ALL'
+                ? 'bg-blue-600 text-white border-blue-600'
+                : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'
+              }`}
+          >
+            全部 ({propositions.length})
+          </button>
+          <button
+            onClick={() => {
+              setFilterStatus('CLOSED');
+              setCurrentPage(1);
+            }}
+            className={`px-4 py-2 text-sm rounded-md border transition-colors ${filterStatus === 'CLOSED'
+                ? 'bg-blue-600 text-white border-blue-600'
+                : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'
+              }`}
+          >
+            已平仓 ({propositions.filter(p => p.status === 'CLOSED').length})
+          </button>
+          <button
+            onClick={() => {
+              setFilterStatus('OPEN');
+              setCurrentPage(1);
+            }}
+            className={`px-4 py-2 text-sm rounded-md border transition-colors ${filterStatus === 'OPEN'
+                ? 'bg-blue-600 text-white border-blue-600'
+                : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'
+              }`}
+          >
+            持仓中 ({propositions.filter(p => p.status === 'OPEN').length})
+          </button>
+        </div>
+      </div>
+
       {/* 表格 */}
       <div className="flex-1 overflow-auto min-h-0 border border-gray-200 rounded-lg">
         <table className="min-w-full bg-white">
@@ -167,17 +219,30 @@ export const PnLTable: React.FC<PnLTableProps> = ({ propositions }) => {
           </thead>
           <tbody className="bg-white divide-y divide-gray-200">
             {sortedAndPaginatedData.map((prop, index) => (
-              <tr key={`${prop.market}-${prop.outcome}-${index}`} className="hover:bg-gray-50">
+              <tr key={`${prop.market}-${index}`} className="hover:bg-gray-50">
                 <td className="px-6 py-4 whitespace-nowrap">
                   <div className="text-sm font-medium text-gray-900 max-w-md truncate">
                     {prop.question}
                   </div>
                   <div className="text-xs text-gray-500">{prop.market}</div>
                 </td>
-                <td className="px-6 py-4 whitespace-nowrap">
-                  <span className="px-2 py-1 text-xs font-semibold rounded-full bg-blue-100 text-blue-800">
-                    {prop.outcome}
-                  </span>
+                <td className="px-6 py-4">
+                  {prop.outcomes && prop.outcomes.length > 1 ? (
+                    <div className="flex flex-wrap gap-1">
+                      {prop.outcomes.map((outcome, idx) => (
+                        <span
+                          key={idx}
+                          className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-blue-100 text-blue-800"
+                        >
+                          {outcome}
+                        </span>
+                      ))}
+                    </div>
+                  ) : (
+                    <span className="px-2 py-1 text-xs font-semibold rounded-full bg-blue-100 text-blue-800">
+                      {prop.outcome || 'N/A'}
+                    </span>
+                  )}
                 </td>
                 <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">
                   {formatDate(prop.openTime)}
@@ -205,11 +270,10 @@ export const PnLTable: React.FC<PnLTableProps> = ({ propositions }) => {
                   {formatPercent(prop.pnlPercent)}
                 </td>
                 <td className="px-6 py-4 whitespace-nowrap text-center">
-                  <span className={`px-2 py-1 text-xs font-semibold rounded-full ${
-                    prop.status === 'OPEN' 
-                      ? 'bg-green-100 text-green-800' 
+                  <span className={`px-2 py-1 text-xs font-semibold rounded-full ${prop.status === 'OPEN'
+                      ? 'bg-green-100 text-green-800'
                       : 'bg-gray-100 text-gray-800'
-                  }`}>
+                    }`}>
                     {prop.status === 'OPEN' ? '持仓中' : '已平仓'}
                   </span>
                 </td>
@@ -220,9 +284,9 @@ export const PnLTable: React.FC<PnLTableProps> = ({ propositions }) => {
             ))}
           </tbody>
         </table>
-        {propositions.length === 0 && (
+        {filteredPropositions.length === 0 && (
           <div className="text-center py-8 text-gray-500">
-            暂无交易记录
+            {propositions.length === 0 ? '暂无交易记录' : '没有符合条件的交易记录'}
           </div>
         )}
       </div>
@@ -248,7 +312,7 @@ export const PnLTable: React.FC<PnLTableProps> = ({ propositions }) => {
               <option value={100}>100</option>
             </select>
             <span className="text-sm text-gray-700">
-              条，共 {propositions.length} 条
+              条，共 {filteredPropositions.length} 条
             </span>
           </div>
 
@@ -267,7 +331,7 @@ export const PnLTable: React.FC<PnLTableProps> = ({ propositions }) => {
             >
               上一页
             </button>
-            
+
             <div className="flex items-center gap-1">
               {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
                 let pageNum: number;
@@ -280,16 +344,15 @@ export const PnLTable: React.FC<PnLTableProps> = ({ propositions }) => {
                 } else {
                   pageNum = currentPage - 2 + i;
                 }
-                
+
                 return (
                   <button
                     key={pageNum}
                     onClick={() => handlePageChange(pageNum)}
-                    className={`px-3 py-1 text-sm border rounded-md ${
-                      currentPage === pageNum
+                    className={`px-3 py-1 text-sm border rounded-md ${currentPage === pageNum
                         ? 'bg-blue-600 text-white border-blue-600'
                         : 'border-gray-300 hover:bg-gray-50'
-                    }`}
+                      }`}
                   >
                     {pageNum}
                   </button>
@@ -311,7 +374,7 @@ export const PnLTable: React.FC<PnLTableProps> = ({ propositions }) => {
             >
               末页
             </button>
-            
+
             <span className="text-sm text-gray-700 ml-2">
               第 {currentPage} / {totalPages} 页
             </span>

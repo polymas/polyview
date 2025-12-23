@@ -21,9 +21,11 @@ export interface PropositionPnL {
   currentValue: number;
   pnl: number;
   pnlPercent: number;
+  realizedPnL: number;  // 已实现盈亏（开平仓的盈亏）
   transactions: PolymarketTransaction[];
   status: 'OPEN' | 'CLOSED';
-  outcome?: string;
+  outcome?: string;  // 单个 outcome（向后兼容）
+  outcomes?: string[];  // 多个 outcome 列表
   openTime?: number;  // 开仓时间戳
   closeTime?: number;  // 平仓时间戳（最后卖出时间，OPEN状态为undefined）
 }
