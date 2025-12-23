@@ -12,7 +12,7 @@ import os
 import logging
 import time
 from typing import List, Dict, Any, Optional
-from datetime import datetime
+from datetime import datetime, timedelta, timedelta
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
@@ -465,7 +465,7 @@ def get_all_user_activity(
     user: str,
     sort_by: str = "TIMESTAMP",
     sort_direction: str = "DESC",
-    batch_size: int = 100,
+    batch_size: int = 500,
     max_records: Optional[int] = None,
     use_cache: bool = True,
     exclude_deposits_withdrawals: bool = True
@@ -477,7 +477,7 @@ def get_all_user_activity(
         user: 用户地址 (必需)
         sort_by: 排序字段 (默认: TIMESTAMP)
         sort_direction: 排序方向 (ASC, DESC)
-        batch_size: 每批获取的记录数 (默认: 100, 最大: 500)
+        batch_size: 每批获取的记录数 (默认: 500, 最大: 500)
         max_records: 最大获取记录数 (None 表示获取所有记录)
         use_cache: 是否使用缓存 (默认: True)
         exclude_deposits_withdrawals: 是否排除存款和提现记录 (默认: True)
@@ -485,154 +485,314 @@ def get_all_user_activity(
     返回:
         所有活动记录的列表
     """
-    if use_cache:
-        # 先尝试从缓存获取
-        cached_data = cache_manager.get_all_cached_activities(
-            user=user,
-            sort_by=sort_by,
-            sort_direction=sort_direction
-        )
+    # 初始化缓存数据变量（无论是否使用缓存，都尝试获取缓存数据用于合并）
+    cached_data = []
+    # 先尝试从缓存获取（用于后续合并）
+    cached_data = cache_manager.get_all_cached_activities(
+        user=user,
+        sort_by=sort_by,
+        sort_direction=sort_direction
+    )
 
-        # 获取缓存中最新的时间戳
-        latest_timestamp = cache_manager.get_latest_timestamp(user)
+    # 计算3个月前的时间戳（秒级）
+    three_months_ago = datetime.now() - timedelta(days=90)
+    three_months_ago_timestamp = int(three_months_ago.timestamp())
 
-        # 如果缓存中有数据，需要获取更新的数据并合并
-        # 等待 API 请求完成以确保数据完整
+    # 如果有缓存，先获取第一批数据，检查是否已经拉完所有数据
+    all_activities = []
+    offset = 0
+    batch_size = min(batch_size, 500)  # API 限制最大 500
+
+    if cached_data and len(cached_data) > 0:
+        logger.info(f"缓存中有 {len(cached_data)} 条记录，先获取第一批数据检查是否需要继续...")
+
+        # 获取第一批数据
         try:
-            # 获取最新的数据（从 offset=0 开始）
-            logger.info(f"缓存中有 {len(cached_data)} 条记录，正在获取最新数据...")
-            latest_data = _fetch_user_activity_from_api(
+            first_batch = _fetch_user_activity_from_api(
                 user=user,
-                limit=100,  # 获取一批最新数据
+                limit=batch_size,
                 offset=0,
                 sort_by=sort_by,
                 sort_direction=sort_direction,
                 exclude_deposits_withdrawals=exclude_deposits_withdrawals
             )
 
-            if latest_data:
-                # 更新缓存
-                cache_manager.save_activities(user, latest_data)
-                logger.info(f"获取到 {len(latest_data)} 条最新数据")
+            if first_batch and len(first_batch) > 0:
+                # 过滤出近3个月的数据
+                filtered_first_batch = []
+                for item in first_batch:
+                    timestamp = item.get('timestamp', 0)
+                    if timestamp > 1e10:
+                        timestamp = timestamp // 1000
+                    if timestamp >= three_months_ago_timestamp:
+                        filtered_first_batch.append(item)
 
-                # 合并缓存数据和新数据，去重
-                # 使用 transactionHash + timestamp 作为唯一标识
-                seen = set()
-                merged_data = []
+                if filtered_first_batch:
+                    # 检查第一批数据是否都在缓存中
+                    cached_keys = set()
+                    for item in cached_data:
+                        timestamp = item.get('timestamp', 0)
+                        if timestamp > 1e10:
+                            timestamp = timestamp // 1000
+                        if timestamp >= three_months_ago_timestamp:
+                            key = (item.get('transactionHash', ''), timestamp)
+                            cached_keys.add(key)
 
-                # 先添加新数据
-                for item in latest_data:
-                    key = (item.get('transactionHash', ''),
-                           item.get('timestamp', 0))
-                    if key not in seen:
-                        seen.add(key)
-                        merged_data.append(item)
+                    first_batch_in_cache = True
+                    for item in filtered_first_batch:
+                        timestamp = item.get('timestamp', 0)
+                        if timestamp > 1e10:
+                            timestamp = timestamp // 1000
+                        key = (item.get('transactionHash', ''), timestamp)
+                        if key not in cached_keys:
+                            first_batch_in_cache = False
+                            break
 
-                # 再添加缓存中不在新数据中的记录
-                for item in cached_data:
-                    key = (item.get('transactionHash', ''),
-                           item.get('timestamp', 0))
-                    if key not in seen:
-                        seen.add(key)
-                        merged_data.append(item)
-
-                # 按时间戳排序
-                merged_data.sort(
-                    key=lambda x: x.get('timestamp', 0),
-                    reverse=(sort_direction == "DESC")
-                )
-
-                logger.info(f"合并后共有 {len(merged_data)} 条记录")
-
-                # 应用最大记录数限制
-                if max_records:
-                    merged_data = merged_data[:max_records]
-
-                return merged_data
+                    if first_batch_in_cache:
+                        logger.info("第一批数据全部在缓存中，说明缓存已是最新，直接使用缓存数据")
+                        # 直接使用缓存数据，不需要继续请求
+                        all_activities = []  # 不添加任何新数据，后续会合并缓存
+                    else:
+                        logger.info("第一批数据不在缓存中，需要继续获取新数据")
+                        # 继续正常的循环获取流程
+                        all_activities.extend(filtered_first_batch)
+                        offset += batch_size
+                else:
+                    logger.info("第一批数据都超过3个月，直接使用缓存数据")
+                    all_activities = []
             else:
-                # 如果没有新数据，返回缓存数据
-                logger.info("没有新数据，返回缓存数据")
-                if max_records:
-                    return cached_data[:max_records]
-                return cached_data
-
+                logger.info("第一批数据为空，直接使用缓存数据")
+                all_activities = []
         except Exception as e:
-            logger.error(f"获取最新数据失败: {str(e)}", exc_info=True)
-            # 如果 API 请求失败，返回缓存数据
-            if cached_data:
-                logger.warning(f"API 请求失败，使用缓存数据，共 {len(cached_data)} 条记录")
-                if max_records:
-                    return cached_data[:max_records]
-                return cached_data
-            raise HTTPException(
-                status_code=500,
-                detail=f"获取数据时出错: {str(e)}"
-            )
-
-    # 不使用缓存，直接循环获取所有数据
-    all_activities = []
-    offset = 0
-    batch_size = min(batch_size, 500)  # API 限制最大 500
+            logger.warning(f"获取第一批数据失败，将使用缓存: {str(e)}")
+            all_activities = []
+    else:
+        logger.info("缓存为空，开始循环获取所有数据")
+        cached_data = []  # 确保是空列表
 
     logger.info(
         f"开始循环获取所有数据，batch_size={batch_size}, max_records={max_records}")
+    logger.info(
+        f"只获取近3个月的数据（时间戳 >= {three_months_ago_timestamp}，日期 >= {three_months_ago.strftime('%Y-%m-%d')}）")
 
-    while True:
-        try:
-            # 获取当前批次
-            logger.info(f"获取第 {offset // batch_size + 1} 批数据，offset={offset}")
-            batch = _fetch_user_activity_from_api(
-                user=user,
-                limit=batch_size,
-                offset=offset,
-                sort_by=sort_by,
-                sort_direction=sort_direction,
-                exclude_deposits_withdrawals=exclude_deposits_withdrawals
-            )
+    # 记录上一批数据的最后时间戳（用于检测时间逆序）
+    last_batch_min_timestamp = None  # 上一批数据中最小的（最晚的）时间戳
 
-            # 检查返回的数据格式
-            if not isinstance(batch, list):
-                logger.error(f"API 返回的数据格式错误，期望列表，实际: {type(batch)}")
-                raise ValueError(f"API 返回的数据格式错误: {type(batch)}")
+    # 如果 all_activities 为空且 cached_data 不为空，说明缓存已是最新，跳过循环
+    if len(all_activities) == 0 and cached_data and len(cached_data) > 0:
+        logger.info("跳过循环获取，直接使用缓存数据")
+    else:
+        # 继续循环获取数据
+        while True:
+            try:
+                # 获取当前批次
+                logger.info(
+                    f"获取第 {offset // batch_size + 1} 批数据，offset={offset}")
+                batch = _fetch_user_activity_from_api(
+                    user=user,
+                    limit=batch_size,
+                    offset=offset,
+                    sort_by=sort_by,
+                    sort_direction=sort_direction,
+                    exclude_deposits_withdrawals=exclude_deposits_withdrawals
+                )
 
-            # 如果没有数据，说明已经获取完所有记录
-            if not batch or len(batch) == 0:
-                logger.info("没有更多数据，停止获取")
-                break
+                # 检查返回的数据格式
+                if not isinstance(batch, list):
+                    logger.error(f"API 返回的数据格式错误，期望列表，实际: {type(batch)}")
+                    raise ValueError(f"API 返回的数据格式错误: {type(batch)}")
 
-            # 添加到总列表
-            all_activities.extend(batch)
-            logger.info(f"已获取 {len(all_activities)} 条记录")
+                # 如果没有数据，说明已经获取完所有记录
+                if not batch or len(batch) == 0:
+                    logger.info("没有更多数据，停止获取")
+                    break
 
-            # 如果返回的记录数少于 batch_size，说明已经是最后一批
-            if len(batch) < batch_size:
-                logger.info("已获取最后一批数据")
-                break
+                # 过滤出近3个月的数据
+                filtered_batch = []
+                for item in batch:
+                    timestamp = item.get('timestamp', 0)
+                    # 如果时间戳是毫秒级，转换为秒级
+                    if timestamp > 1e10:
+                        timestamp = timestamp // 1000
 
-            # 如果设置了最大记录数限制
-            if max_records and len(all_activities) >= max_records:
-                all_activities = all_activities[:max_records]
-                logger.info(f"达到最大记录数限制 {max_records}")
-                break
+                    if timestamp >= three_months_ago_timestamp:
+                        filtered_batch.append(item)
+                    else:
+                        # 由于数据是按时间戳降序排列的，一旦遇到3个月前的数据，后面的数据都会更早
+                        logger.info(f"遇到3个月前的数据（时间戳: {timestamp}），停止获取")
+                        break
 
-            # 更新偏移量，准备获取下一批
-            offset += batch_size
+                # 如果过滤后没有数据，说明已经超过3个月的范围
+                if not filtered_batch:
+                    logger.info("当前批次的数据都超过3个月，停止获取")
+                    break
 
-            # 安全限制：防止无限循环（API 限制 offset 最大 10000）
-            if offset > 10000:
-                logger.warning("达到 offset 上限 10000，停止获取")
-                break
+                # 检测时间逆序：由于数据是按时间倒序排列（DESC），如果当前批次的第一条时间戳比上一批的最后一条更大，说明时间逆序了
+                if last_batch_min_timestamp is not None and len(filtered_batch) > 0:
+                    current_batch_first_timestamp = filtered_batch[0].get(
+                        'timestamp', 0)
+                    if current_batch_first_timestamp > 1e10:
+                        current_batch_first_timestamp = current_batch_first_timestamp // 1000
 
-        except HTTPException:
-            raise
-        except Exception as e:
-            logger.error(f"获取数据时出错: {str(e)}", exc_info=True)
-            raise HTTPException(
-                status_code=500,
-                detail=f"获取数据时出错: {str(e)}"
-            )
+                    # 由于数据是按时间倒序排列（DESC），正常情况下：
+                    # - 第一批：时间戳从大到小（例如：1766479927, 1766479897, ...）
+                    # - 第二批：时间戳应该继续从大到小，且第一条应该 <= 上一批的最后一条（例如：1766479000, 1766478900, ...）
+                    # 如果当前批次的第一条时间戳比上一批的最后一条更大，说明时间逆序了（API返回了重复或错误的数据）
+                    if current_batch_first_timestamp > last_batch_min_timestamp:
+                        logger.warning(
+                            f"检测到时间逆序：当前批次第一条时间戳 {current_batch_first_timestamp} "
+                            f"大于上一批最后时间戳 {last_batch_min_timestamp}，停止获取")
+                        break
+
+                # 去重后再添加到总列表（避免 API 返回重复数据）
+                seen_in_batch = set()
+                unique_filtered_batch = []
+                for item in filtered_batch:
+                    key = (item.get('transactionHash', ''),
+                           item.get('timestamp', 0))
+                    if key not in seen_in_batch:
+                        seen_in_batch.add(key)
+                        unique_filtered_batch.append(item)
+
+                if len(unique_filtered_batch) < len(filtered_batch):
+                    logger.warning(
+                        f"当前批次有 {len(filtered_batch) - len(unique_filtered_batch)} 条重复数据")
+
+                # 更新上一批的最小时间戳（当前批次的最后一条，即时间戳最小的）
+                if unique_filtered_batch:
+                    current_batch_min_timestamp = min(
+                        item.get('timestamp', 0) if item.get('timestamp', 0) <= 1e10
+                        else item.get('timestamp', 0) // 1000
+                        for item in unique_filtered_batch
+                    )
+                    last_batch_min_timestamp = current_batch_min_timestamp
+
+                # 添加到总列表
+                all_activities.extend(unique_filtered_batch)
+                logger.info(
+                    f"已获取 {len(all_activities)} 条记录，当前批次返回 {len(batch)} 条，过滤后 {len(filtered_batch)} 条，去重后 {len(unique_filtered_batch)} 条")
+
+                # 增量保存到缓存（每批都保存，避免数据丢失）
+                if use_cache and unique_filtered_batch:
+                    try:
+                        cache_manager.save_activities(
+                            user, unique_filtered_batch)
+                        logger.debug(
+                            f"已保存 {len(unique_filtered_batch)} 条记录到缓存")
+                    except Exception as e:
+                        logger.warning(f"保存缓存失败: {str(e)}")
+
+                # 如果过滤后的数据少于原始数据，说明已经遇到3个月前的数据，停止获取
+                if len(filtered_batch) < len(batch):
+                    logger.info("已遇到3个月前的数据，停止获取")
+                    break
+
+                # 如果设置了最大记录数限制
+                if max_records and len(all_activities) >= max_records:
+                    all_activities = all_activities[:max_records]
+                    logger.info(f"达到最大记录数限制 {max_records}")
+                    break
+
+                # 更新偏移量，准备获取下一批
+                offset += batch_size
+
+                # 安全限制：防止无限循环（API 限制 offset 最大 10000）
+                if offset > 10000:
+                    logger.warning("达到 offset 上限 10000，停止获取")
+                    break
+
+                # 注意：只有当返回空数组时才停止，不要因为返回数据少于 batch_size 就停止
+                # 因为 API 可能在某些 offset 返回的数据少于 limit，但后续 offset 还有数据
+
+            except HTTPException:
+                raise
+            except Exception as e:
+                logger.error(f"获取数据时出错: {str(e)}", exc_info=True)
+                raise HTTPException(
+                    status_code=500,
+                    detail=f"获取数据时出错: {str(e)}"
+                )
 
     logger.info(f"最终获取 {len(all_activities)} 条记录")
+
+    # 合并 API 数据和缓存数据（无论是否使用缓存，都合并以确保数据完整）
+    if cached_data and len(cached_data) > 0:
+        logger.info(
+            f"合并缓存数据（{len(cached_data)} 条）和 API 数据（{len(all_activities)} 条）")
+
+        # 计算3个月前的时间戳（秒级）
+        three_months_ago = datetime.now() - timedelta(days=90)
+        three_months_ago_timestamp = int(three_months_ago.timestamp())
+
+        # 使用 transactionHash + timestamp 作为唯一标识去重
+        seen = set()
+        merged_data = []
+        api_added_count = 0
+        cache_added_count = 0
+        api_duplicate_count = 0
+        cache_filtered_count = 0
+
+        # 先添加 API 获取的数据（已经过滤过3个月）
+        for item in all_activities:
+            key = (item.get('transactionHash', ''),
+                   item.get('timestamp', 0))
+            if key not in seen:
+                seen.add(key)
+                merged_data.append(item)
+                api_added_count += 1
+            else:
+                api_duplicate_count += 1
+
+        logger.info(
+            f"API 数据：添加 {api_added_count} 条，重复 {api_duplicate_count} 条")
+
+        # 再添加缓存中不在 API 数据中的记录，同时过滤掉3个月前的数据
+        for item in cached_data:
+            timestamp = item.get('timestamp', 0)
+            # 如果时间戳是毫秒级，转换为秒级
+            if timestamp > 1e10:
+                timestamp = timestamp // 1000
+
+            # 只添加近3个月的数据
+            if timestamp >= three_months_ago_timestamp:
+                key = (item.get('transactionHash', ''),
+                       item.get('timestamp', 0))
+                if key not in seen:
+                    seen.add(key)
+                    merged_data.append(item)
+                    cache_added_count += 1
+            else:
+                cache_filtered_count += 1
+
+        logger.info(
+            f"缓存数据：添加 {cache_added_count} 条，过滤（超过3个月）{cache_filtered_count} 条")
+
+        # 按时间戳排序
+        merged_data.sort(
+            key=lambda x: x.get('timestamp', 0),
+            reverse=(sort_direction == "DESC")
+        )
+
+        logger.info(
+            f"合并后共有 {len(merged_data)} 条记录（API: {api_added_count}, 缓存: {cache_added_count}）")
+
+        # 缓存已经在循环中增量保存了，这里不需要再次保存
+        # 但为了确保数据完整性，可以再次保存一次（去重后不会重复）
+        if all_activities:
+            try:
+                cache_manager.save_activities(user, all_activities)
+                logger.debug("已更新完整缓存")
+            except Exception as e:
+                logger.warning(f"更新缓存失败: {str(e)}")
+
+        # 应用最大记录数限制
+        if max_records:
+            merged_data = merged_data[:max_records]
+
+        return merged_data
+
+    # 如果没有缓存或缓存为空，直接返回 API 数据
+    # 缓存已经在循环中增量保存了
     return all_activities
 
 
@@ -720,7 +880,7 @@ async def get_activity(
                 user=user,
                 sort_by=sort_by,
                 sort_direction=sort_direction,
-                batch_size=100,  # 每次获取100条记录
+                batch_size=500,  # 每次获取500条记录
                 max_records=None,  # 不限制最大记录数
                 use_cache=use_cache,
                 exclude_deposits_withdrawals=exclude_deposits_withdrawals
@@ -774,7 +934,8 @@ async def get_all_activity(
     sort_by: str = Query("TIMESTAMP", description="排序字段"),
     sort_direction: str = Query(
         "DESC", pattern="^(ASC|DESC)$", description="排序方向（ASC 或 DESC）"),
-    batch_size: int = Query(100, ge=1, le=500, description="每批获取的记录数（1-500）"),
+    batch_size: int = Query(
+        500, ge=1, le=500, description="每批获取的记录数（1-500，默认500）"),
     max_records: Optional[int] = Query(
         None, ge=1, description="最大获取记录数（None表示获取所有）"),
     use_cache: bool = Query(True, description="是否使用缓存（默认True）"),
@@ -789,7 +950,7 @@ async def get_all_activity(
     - **user**: 用户钱包地址（必需）
     - **sort_by**: 排序字段（默认TIMESTAMP）
     - **sort_direction**: 排序方向，ASC 或 DESC（默认DESC）
-    - **batch_size**: 每批获取的记录数（默认100，最大500）
+    - **batch_size**: 每批获取的记录数（默认500，最大500）
     - **max_records**: 最大获取记录数限制（可选，None表示获取所有）
     - **exclude_deposits_withdrawals**: 是否排除存款和提现记录（默认True）
     """
