@@ -41,7 +41,33 @@ npm install
 
 ### 启动服务
 
-#### 方式 1: 统一启动脚本（推荐）
+#### 方式 1: 自动重启脚本（推荐，适合生产环境）
+
+使用自动重启脚本，服务崩溃后会自动重启：
+
+```bash
+# 前台运行（可以看到日志）
+python auto_restart.py
+
+# 后台运行（daemon模式）
+python auto_restart.py --daemon
+
+# 停止服务
+python auto_restart.py --stop
+
+# 查看服务状态
+python auto_restart.py --status
+```
+
+脚本功能：
+- ✅ 自动监控前后端服务
+- ✅ 服务崩溃后自动重启
+- ✅ 支持后台运行（daemon模式）
+- ✅ 重启频率限制（防止频繁重启）
+- ✅ 日志记录到 `auto_restart.log`
+- ✅ PID文件管理（`.auto_restart.pid`）
+
+#### 方式 2: 统一启动脚本（适合开发环境）
 
 使用统一启动脚本同时启动前后端：
 
@@ -62,7 +88,7 @@ python start.py
 - ✅ 显示服务日志
 - ✅ 按 Ctrl+C 优雅关闭所有服务
 
-#### 方式 2: 分别启动
+#### 方式 3: 分别启动
 
 **启动后端：**
 ```bash
