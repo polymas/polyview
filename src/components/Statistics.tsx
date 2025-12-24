@@ -46,9 +46,9 @@ export const Statistics: React.FC<StatisticsProps> = ({ statistics, days }) => {
       color: getPnLClass(statistics.totalPnLPercent),
     },
     {
-      label: `年化收益率（${daysLabel}）`,
-      value: formatPercent(statistics.annualizedReturn),
-      color: getPnLClass(statistics.annualizedReturn),
+      label: `月化收益率（${daysLabel}）`,
+      value: formatPercent(statistics.monthlyReturn),
+      color: getPnLClass(statistics.monthlyReturn),
       highlight: true,
     },
     {

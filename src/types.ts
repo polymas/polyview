@@ -60,6 +60,7 @@ export interface Statistics {
   totalPnL: number;
   totalPnLPercent: number;
   annualizedReturn: number;
+  monthlyReturn: number;  // 月化收益率
   totalTransactions: number;
   activeMarkets: number;
   closedMarkets: number;

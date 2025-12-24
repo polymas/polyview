@@ -400,7 +400,7 @@ export function calculateStatistics(
     ? (totalPnL / totalInvested) * 100
     : 0;
 
-  // 计算年化收益率（基于指定天数的数据）
+  // 计算年化收益率（基于时间按最大占用资金算）
   if (validTransactions.length === 0) {
     return {
       totalInvested: 0,
@@ -408,15 +408,64 @@ export function calculateStatistics(
       totalPnL: 0,
       totalPnLPercent: 0,
       annualizedReturn: 0,
+      monthlyReturn: 0,
       totalTransactions: 0,
       activeMarkets: recentPropositions.filter(p => p.status === 'OPEN').length,
       closedMarkets: recentPropositions.filter(p => p.status === 'CLOSED').length,
     };
   }
 
-  // 基于指定天数的时间范围计算年化收益率
-  const annualizedReturn = totalInvested > 0
-    ? ((Math.pow(1 + totalPnL / totalInvested, 365 / days) - 1) * 100)
+  // 计算最大占用资金：按时间顺序遍历所有交易，计算每个时间点的占用资金
+  // 占用资金 = 累计投入 - 累计收回 + 当前持仓价值
+  let maxOccupiedCapital = 0;
+  let currentOccupiedCapital = 0;
+  const sortedTxs = [...validTransactions].sort((a, b) => a.timestamp - b.timestamp);
+
+  // 按时间顺序计算占用资金（只考虑已平仓的，持仓中的单独计算）
+  // 对于每个时间点，占用资金 = 累计投入 - 累计收回
+  sortedTxs.forEach(tx => {
+    if (tx.type === 'BUY') {
+      currentOccupiedCapital += tx.totalCost;
+    } else if (tx.type === 'SELL') {
+      currentOccupiedCapital -= tx.amount * tx.price;
+    }
+
+    // 更新最大占用资金
+    if (currentOccupiedCapital > maxOccupiedCapital) {
+      maxOccupiedCapital = currentOccupiedCapital;
+    }
+  });
+
+  // 计算当前持仓中命题的占用资金
+  // 对于持仓中的命题，占用资金 = totalInvested - totalReturned + currentValue
+  let currentOpenPositionsCapital = 0;
+  recentPropositions.forEach(prop => {
+    if (prop.status === 'OPEN') {
+      // 持仓中的占用资金 = 投入 - 收回 + 当前价值
+      currentOpenPositionsCapital += prop.totalInvested - prop.totalReturned + prop.currentValue;
+    }
+  });
+
+  // 最终的最大占用资金 = max(历史最大占用资金, 当前持仓占用资金)
+  const finalMaxOccupiedCapital = Math.max(maxOccupiedCapital, currentOpenPositionsCapital);
+
+  // 计算实际时间跨度（从第一笔交易到最后一笔交易，或到当前时间）
+  const firstTxTime = sortedTxs[0].timestamp;
+  const lastTxTime = sortedTxs[sortedTxs.length - 1].timestamp;
+  const now = Date.now();
+  // 如果有持仓，时间跨度到当前；否则到最后交易时间
+  const hasOpenPositions = recentPropositions.some(p => p.status === 'OPEN');
+  const endTime = hasOpenPositions ? now : lastTxTime;
+  const actualDays = (endTime - firstTxTime) / (24 * 60 * 60 * 1000);
+
+  // 年化收益率 = (总盈亏 / 最大占用资金) * (365 / 实际天数) * 100
+  const annualizedReturn = finalMaxOccupiedCapital > 0 && actualDays > 0
+    ? (totalPnL / finalMaxOccupiedCapital) * (365 / actualDays) * 100
+    : 0;
+
+  // 月化收益率 = (总盈亏 / 最大占用资金) * (30 / 实际天数) * 100
+  const monthlyReturn = finalMaxOccupiedCapital > 0 && actualDays > 0
+    ? (totalPnL / finalMaxOccupiedCapital) * (30 / actualDays) * 100
     : 0;
 
   const activeMarkets = recentPropositions.filter(p => p.status === 'OPEN').length;
@@ -428,6 +477,7 @@ export function calculateStatistics(
     totalPnL,
     totalPnLPercent,
     annualizedReturn,
+    monthlyReturn,
     totalTransactions: validTransactions.length,
     activeMarkets,
     closedMarkets,

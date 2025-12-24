@@ -18,7 +18,7 @@ function App() {
   const [statistics, setStatistics] = useState<Statistics | null>(null);
   const [holdingDurations, setHoldingDurations] = useState<HoldingDuration[]>([]);
   const [currentMonth, setCurrentMonth] = useState<Date>(new Date());
-  const [statisticsDays, setStatisticsDays] = useState<number>(30);  // 统计天数：7天或30天
+  const [statisticsDays, setStatisticsDays] = useState<number>(7);  // 统计天数：7天或30天
 
   const handleSearch = async () => {
     if (!walletAddress.trim()) {
