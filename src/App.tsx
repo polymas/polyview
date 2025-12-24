@@ -62,7 +62,6 @@ function App() {
       const durations = calculateHoldingDurations(txData, statisticsDays);
       setHoldingDurations(durations);
     } catch (error: any) {
-      console.error('获取数据失败:', error);
       alert(error.message || '获取交易记录失败，请检查钱包地址是否正确或稍后重试');
     } finally {
       setLoading(false);
