@@ -288,33 +288,33 @@ def _fetch_user_activity_from_api(
             response.raise_for_status()
             result = response.json()
 
-            # 首次请求保存日志
-            if offset == 0 and result and isinstance(result, list) and len(result) > 0:
-                try:
-                    log_file = f"api_debug_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log"
-                    with open(log_file, 'w', encoding='utf-8') as f:
-                        f.write("=" * 80 + "\n")
-                        f.write(f"首次{BATCH_SIZE_DEFAULT}条数据请求和响应日志\n")
-                        f.write(
-                            f"时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
-                        f.write("=" * 80 + "\n\n")
-                        f.write("请求信息:\n")
-                        f.write("-" * 80 + "\n")
-                        f.write(f"URL: {BASE_URL}/v1/activity\n")
-                        f.write(
-                            f"参数: {json.dumps(params, indent=2, ensure_ascii=False)}\n")
-                        f.write(
-                            f"Headers: {json.dumps(headers, indent=2, ensure_ascii=False)}\n")
-                        f.write("\n响应信息:\n")
-                        f.write("-" * 80 + "\n")
-                        f.write(f"状态码: {response.status_code}\n")
-                        f.write(f"返回记录数: {len(result)}\n")
-                        f.write("\n完整响应数据:\n")
-                        f.write("-" * 80 + "\n")
-                        f.write(json.dumps(result, indent=2, ensure_ascii=False))
-                    logger.info(f"已保存首次请求日志到: {log_file}")
-                except Exception as e:
-                    logger.warning(f"保存请求日志失败: {str(e)}")
+            # 首次请求保存日志 - 已注释
+            # if offset == 0 and result and isinstance(result, list) and len(result) > 0:
+            #     try:
+            #         log_file = f"api_debug_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log"
+            #         with open(log_file, 'w', encoding='utf-8') as f:
+            #             f.write("=" * 80 + "\n")
+            #             f.write(f"首次{BATCH_SIZE_DEFAULT}条数据请求和响应日志\n")
+            #             f.write(
+            #                 f"时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+            #             f.write("=" * 80 + "\n\n")
+            #             f.write("请求信息:\n")
+            #             f.write("-" * 80 + "\n")
+            #             f.write(f"URL: {BASE_URL}/v1/activity\n")
+            #             f.write(
+            #                 f"参数: {json.dumps(params, indent=2, ensure_ascii=False)}\n")
+            #             f.write(
+            #                 f"Headers: {json.dumps(headers, indent=2, ensure_ascii=False)}\n")
+            #             f.write("\n响应信息:\n")
+            #             f.write("-" * 80 + "\n")
+            #             f.write(f"状态码: {response.status_code}\n")
+            #             f.write(f"返回记录数: {len(result)}\n")
+            #             f.write("\n完整响应数据:\n")
+            #             f.write("-" * 80 + "\n")
+            #             f.write(json.dumps(result, indent=2, ensure_ascii=False))
+            #         logger.info(f"已保存首次请求日志到: {log_file}")
+            #     except Exception as e:
+            #         logger.warning(f"保存请求日志失败: {str(e)}")
 
             return result
 
