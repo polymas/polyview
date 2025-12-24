@@ -78,36 +78,38 @@ function App() {
 
   return (
     <div className="min-h-screen bg-gray-50">
-      <div className="container mx-auto px-4 py-4">
-        <header className="mb-4">
-          <div className="flex items-center justify-between gap-4 mb-1">
-            <div>
-              <h1 className="text-2xl font-bold text-gray-900">
+      <div className="container mx-auto px-2 sm:px-4 py-2 sm:py-4">
+        <header className="mb-3 sm:mb-4">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 sm:gap-4 mb-1">
+            <div className="flex-shrink-0">
+              <h1 className="text-xl sm:text-2xl font-bold text-gray-900">
                 Polymarket 交易分析
               </h1>
-              <p className="text-sm text-gray-600 mt-1">
+              <p className="text-xs sm:text-sm text-gray-600 mt-1">
                 输入钱包地址，查看历史交易记录和盈亏分析
               </p>
             </div>
 
-            <div className="flex-shrink-0 flex items-center gap-2">
-              <input
-                type="text"
-                value={walletAddress}
-                onChange={(e) => setWalletAddress(e.target.value)}
-                placeholder="输入钱包地址 (0x...)"
-                className="w-80 px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
-                onKeyPress={(e) => e.key === 'Enter' && handleSearch()}
-              />
-              <button
-                onClick={handleSearch}
-                disabled={loading}
-                className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed text-sm whitespace-nowrap"
-              >
-                {loading ? '加载中...' : '查询'}
-              </button>
+            <div className="flex flex-col sm:flex-row flex-shrink-0 gap-2 sm:items-center">
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  value={walletAddress}
+                  onChange={(e) => setWalletAddress(e.target.value)}
+                  placeholder="输入钱包地址 (0x...)"
+                  className="flex-1 sm:w-80 px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
+                  onKeyPress={(e) => e.key === 'Enter' && handleSearch()}
+                />
+                <button
+                  onClick={handleSearch}
+                  disabled={loading}
+                  className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed text-sm whitespace-nowrap"
+                >
+                  {loading ? '加载中...' : '查询'}
+                </button>
+              </div>
               {/* 统计时间范围选择 */}
-              <div className="flex items-center gap-1 border border-gray-300 rounded-lg p-0.5">
+              <div className="flex items-center gap-1 border border-gray-300 rounded-lg p-0.5 self-start sm:self-auto">
                 <button
                   onClick={() => {
                     setStatisticsDays(7);
@@ -118,7 +120,7 @@ function App() {
                       setHoldingDurations(durations);
                     }
                   }}
-                  className={`px-3 py-1 text-xs rounded transition-colors ${statisticsDays === 7
+                  className={`px-2 sm:px-3 py-1 text-xs rounded transition-colors ${statisticsDays === 7
                     ? 'bg-blue-600 text-white'
                     : 'bg-white text-gray-700 hover:bg-gray-50'
                     }`}
@@ -135,7 +137,7 @@ function App() {
                       setHoldingDurations(durations);
                     }
                   }}
-                  className={`px-3 py-1 text-xs rounded transition-colors ${statisticsDays === 30
+                  className={`px-2 sm:px-3 py-1 text-xs rounded transition-colors ${statisticsDays === 30
                     ? 'bg-blue-600 text-white'
                     : 'bg-white text-gray-700 hover:bg-gray-50'
                     }`}
@@ -153,27 +155,27 @@ function App() {
             <div className="flex-shrink-0">
               <StatisticsComponent statistics={statistics} days={statisticsDays} />
 
-              <div className="mt-3 grid grid-cols-1 lg:grid-cols-3 gap-3">
+              <div className="mt-3 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2 sm:gap-3">
                 {/* 盈亏日历 */}
                 <div className="flex flex-col">
                   <div className="flex items-center justify-between mb-2">
-                    <h2 className="text-base font-semibold text-gray-900">盈亏日历</h2>
+                    <h2 className="text-sm sm:text-base font-semibold text-gray-900">盈亏日历</h2>
                     <div className="flex gap-1">
                       <button
                         onClick={handlePrevMonth}
-                        className="px-2 py-1 border border-gray-300 rounded hover:bg-gray-50 text-xs"
+                        className="px-1.5 sm:px-2 py-0.5 sm:py-1 border border-gray-300 rounded hover:bg-gray-50 text-[10px] sm:text-xs"
                       >
-                        上个月
+                        上月
                       </button>
                       <button
                         onClick={handleNextMonth}
-                        className="px-2 py-1 border border-gray-300 rounded hover:bg-gray-50 text-xs"
+                        className="px-1.5 sm:px-2 py-0.5 sm:py-1 border border-gray-300 rounded hover:bg-gray-50 text-[10px] sm:text-xs"
                       >
-                        下个月
+                        下月
                       </button>
                     </div>
                   </div>
-                  <div className="min-h-[320px]">
+                  <div className="min-h-[280px] sm:min-h-[320px]">
                     <PnLCalendar dailyPnL={dailyPnL} currentMonth={currentMonth} />
                   </div>
                 </div>
@@ -181,32 +183,32 @@ function App() {
                 {/* 交易额日历 */}
                 <div className="flex flex-col">
                   <div className="flex items-center justify-between mb-2">
-                    <h2 className="text-base font-semibold text-gray-900">交易额日历</h2>
+                    <h2 className="text-sm sm:text-base font-semibold text-gray-900">交易额日历</h2>
                     <div className="flex gap-1">
                       <button
                         onClick={handlePrevMonth}
-                        className="px-2 py-1 border border-gray-300 rounded hover:bg-gray-50 text-xs"
+                        className="px-1.5 sm:px-2 py-0.5 sm:py-1 border border-gray-300 rounded hover:bg-gray-50 text-[10px] sm:text-xs"
                       >
-                        上个月
+                        上月
                       </button>
                       <button
                         onClick={handleNextMonth}
-                        className="px-2 py-1 border border-gray-300 rounded hover:bg-gray-50 text-xs"
+                        className="px-1.5 sm:px-2 py-0.5 sm:py-1 border border-gray-300 rounded hover:bg-gray-50 text-[10px] sm:text-xs"
                       >
-                        下个月
+                        下月
                       </button>
                     </div>
                   </div>
-                  <div className="min-h-[320px]">
+                  <div className="min-h-[280px] sm:min-h-[320px]">
                     <TradingVolumeCalendar dailyPnL={dailyPnL} currentMonth={currentMonth} />
                   </div>
                 </div>
 
-                {/* 持仓时长分布 */}
-                {holdingDurations.length > 0 && (
-                  <div className="flex flex-col">
-                    <h2 className="text-base font-semibold text-gray-900 mb-2">持仓时长分布</h2>
-                    <div className="min-h-[320px]">
+                {/* 持仓时长分布 - 暂时隐藏 */}
+                {false && holdingDurations.length > 0 && (
+                  <div className="flex flex-col md:col-span-2 lg:col-span-1">
+                    <h2 className="text-sm sm:text-base font-semibold text-gray-900 mb-2">持仓时长分布</h2>
+                    <div className="min-h-[280px] sm:min-h-[320px]">
                       <HoldingDurationChart durations={holdingDurations} days={statisticsDays} />
                     </div>
                   </div>
@@ -215,11 +217,11 @@ function App() {
             </div>
 
             {/* 下部分：表格（全宽） */}
-            <div className="flex-1 flex flex-col min-h-[500px]">
-              <h2 className="text-base font-semibold text-gray-900 mb-2">
+            <div className="flex-1 flex flex-col min-h-[400px] sm:min-h-[500px]">
+              <h2 className="text-sm sm:text-base font-semibold text-gray-900 mb-2">
                 命题盈亏表格
               </h2>
-              <div className="flex-1 min-h-0 bg-white rounded-lg shadow-sm border border-gray-200 p-3">
+              <div className="flex-1 min-h-0 bg-white rounded-lg shadow-sm border border-gray-200 p-2 sm:p-3">
                 <PnLTable propositions={propositions} />
               </div>
             </div>

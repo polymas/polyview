@@ -54,9 +54,9 @@ export const TradingVolumeCalendar: React.FC<TradingVolumeCalendarProps> = ({
   };
 
   return (
-    <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-2">
+    <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-1.5 sm:p-2">
       <div className="mb-1">
-        <h3 className="text-sm font-semibold text-gray-900">
+        <h3 className="text-xs sm:text-sm font-semibold text-gray-900">
           {format(currentMonth, 'yyyy年MM月', { locale: zhCN })}
         </h3>
       </div>
@@ -66,7 +66,7 @@ export const TradingVolumeCalendar: React.FC<TradingVolumeCalendarProps> = ({
         {['日', '一', '二', '三', '四', '五', '六'].map((day) => (
           <div
             key={day}
-            className="text-center text-[10px] font-medium text-gray-500 py-0.5"
+            className="text-center text-[9px] sm:text-[10px] font-medium text-gray-500 py-0.5"
           >
             {day}
           </div>
@@ -74,7 +74,7 @@ export const TradingVolumeCalendar: React.FC<TradingVolumeCalendarProps> = ({
 
         {/* 月初空白 */}
         {emptyDays.map((_, index) => (
-          <div key={`empty-${index}`} className="h-12" />
+          <div key={`empty-${index}`} className="h-10 sm:h-12" />
         ))}
 
         {/* 日期格子 */}
@@ -87,20 +87,20 @@ export const TradingVolumeCalendar: React.FC<TradingVolumeCalendarProps> = ({
           return (
             <div
               key={dateStr}
-              className={`h-12 border rounded p-0.5 flex flex-col items-center justify-center ${daily ? getVolumeColor(daily.tradingVolume) : 'bg-gray-50 border-gray-200'
+              className={`h-10 sm:h-12 border rounded p-0.5 flex flex-col items-center justify-center ${daily ? getVolumeColor(daily.tradingVolume) : 'bg-gray-50 border-gray-200'
                 } ${isCurrentDay ? 'ring-1 ring-blue-500' : ''} ${!isCurrentMonth ? 'opacity-50' : ''
                 }`}
             >
-              <div className="text-[10px] font-medium leading-tight">
+              <div className="text-[9px] sm:text-[10px] font-medium leading-tight">
                 {format(day, 'd')}
               </div>
               {daily && daily.tradingVolume > 0 && (
                 <>
-                  <div className="text-[8px] font-semibold leading-tight">
+                  <div className="text-[7px] sm:text-[8px] font-semibold leading-tight">
                     {formatCurrency(daily.tradingVolume)}
                   </div>
                   {daily.transactions > 0 && (
-                    <div className="text-[7px] text-gray-500 leading-tight">
+                    <div className="text-[6px] sm:text-[7px] text-gray-500 leading-tight">
                       {daily.transactions}
                     </div>
                   )}
@@ -112,22 +112,22 @@ export const TradingVolumeCalendar: React.FC<TradingVolumeCalendarProps> = ({
       </div>
 
       {/* 图例 */}
-      <div className="mt-1.5 flex items-center justify-center gap-2 text-[10px]">
+      <div className="mt-1 sm:mt-1.5 flex items-center justify-center gap-1 sm:gap-2 text-[8px] sm:text-[10px] flex-wrap">
         <div className="flex items-center gap-0.5">
-          <div className="w-2 h-2 bg-blue-200 border border-blue-400 rounded"></div>
-          <span>高交易额</span>
+          <div className="w-1.5 sm:w-2 h-1.5 sm:h-2 bg-blue-200 border border-blue-400 rounded"></div>
+          <span>高</span>
         </div>
         <div className="flex items-center gap-0.5">
-          <div className="w-2 h-2 bg-blue-100 border border-blue-300 rounded"></div>
-          <span>中交易额</span>
+          <div className="w-1.5 sm:w-2 h-1.5 sm:h-2 bg-blue-100 border border-blue-300 rounded"></div>
+          <span>中</span>
         </div>
         <div className="flex items-center gap-0.5">
-          <div className="w-2 h-2 bg-blue-50 border border-blue-200 rounded"></div>
-          <span>低交易额</span>
+          <div className="w-1.5 sm:w-2 h-1.5 sm:h-2 bg-blue-50 border border-blue-200 rounded"></div>
+          <span>低</span>
         </div>
         <div className="flex items-center gap-0.5">
-          <div className="w-2 h-2 bg-gray-50 border border-gray-200 rounded"></div>
-          <span>无交易</span>
+          <div className="w-1.5 sm:w-2 h-1.5 sm:h-2 bg-gray-50 border border-gray-200 rounded"></div>
+          <span>无</span>
         </div>
       </div>
     </div>

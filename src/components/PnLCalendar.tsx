@@ -41,9 +41,9 @@ export const PnLCalendar: React.FC<PnLCalendarProps> = ({
   };
 
   return (
-    <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-2">
+    <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-1.5 sm:p-2">
       <div className="mb-1">
-        <h3 className="text-sm font-semibold text-gray-900">
+        <h3 className="text-xs sm:text-sm font-semibold text-gray-900">
           已平仓盈亏日历 - {format(currentMonth, 'yyyy年MM月', { locale: zhCN })}
         </h3>
       </div>
@@ -53,7 +53,7 @@ export const PnLCalendar: React.FC<PnLCalendarProps> = ({
         {['日', '一', '二', '三', '四', '五', '六'].map((day) => (
           <div
             key={day}
-            className="text-center text-[10px] font-medium text-gray-500 py-0.5"
+            className="text-center text-[9px] sm:text-[10px] font-medium text-gray-500 py-0.5"
           >
             {day}
           </div>
@@ -61,7 +61,7 @@ export const PnLCalendar: React.FC<PnLCalendarProps> = ({
 
         {/* 月初空白 */}
         {emptyDays.map((_, index) => (
-          <div key={`empty-${index}`} className="h-12" />
+          <div key={`empty-${index}`} className="h-10 sm:h-12" />
         ))}
 
         {/* 日期格子 */}
@@ -74,20 +74,20 @@ export const PnLCalendar: React.FC<PnLCalendarProps> = ({
           return (
             <div
               key={dateStr}
-              className={`h-12 border rounded p-0.5 flex flex-col items-center justify-center ${daily ? getPnLColor(daily.pnl) : 'bg-gray-50 border-gray-200'
+              className={`h-10 sm:h-12 border rounded p-0.5 flex flex-col items-center justify-center ${daily ? getPnLColor(daily.pnl) : 'bg-gray-50 border-gray-200'
                 } ${isCurrentDay ? 'ring-1 ring-blue-500' : ''} ${!isCurrentMonth ? 'opacity-50' : ''
                 }`}
             >
-              <div className="text-[10px] font-medium leading-tight">
+              <div className="text-[9px] sm:text-[10px] font-medium leading-tight">
                 {format(day, 'd')}
               </div>
               {daily && (
                 <>
-                  <div className="text-[8px] font-semibold leading-tight">
+                  <div className="text-[7px] sm:text-[8px] font-semibold leading-tight">
                     {formatCurrency(daily.pnl)}
                   </div>
                   {daily.transactions > 0 && (
-                    <div className="text-[7px] text-gray-500 leading-tight">
+                    <div className="text-[6px] sm:text-[7px] text-gray-500 leading-tight">
                       {daily.transactions}
                     </div>
                   )}
@@ -99,17 +99,17 @@ export const PnLCalendar: React.FC<PnLCalendarProps> = ({
       </div>
 
       {/* 图例 */}
-      <div className="mt-1.5 flex items-center justify-center gap-2 text-[10px]">
+      <div className="mt-1 sm:mt-1.5 flex items-center justify-center gap-1.5 sm:gap-2 text-[9px] sm:text-[10px] flex-wrap">
         <div className="flex items-center gap-0.5">
-          <div className="w-2 h-2 bg-green-100 border border-green-300 rounded"></div>
+          <div className="w-1.5 sm:w-2 h-1.5 sm:h-2 bg-green-100 border border-green-300 rounded"></div>
           <span>盈利</span>
         </div>
         <div className="flex items-center gap-0.5">
-          <div className="w-2 h-2 bg-red-100 border border-red-300 rounded"></div>
+          <div className="w-1.5 sm:w-2 h-1.5 sm:h-2 bg-red-100 border border-red-300 rounded"></div>
           <span>亏损</span>
         </div>
         <div className="flex items-center gap-0.5">
-          <div className="w-2 h-2 bg-gray-50 border border-gray-200 rounded"></div>
+          <div className="w-1.5 sm:w-2 h-1.5 sm:h-2 bg-gray-50 border border-gray-200 rounded"></div>
           <span>无交易</span>
         </div>
       </div>

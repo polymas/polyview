@@ -69,15 +69,15 @@ export const Statistics: React.FC<StatisticsProps> = ({ statistics, days }) => {
   ];
 
   return (
-    <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-8 gap-2 mb-3">
+    <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-1.5 sm:gap-2 mb-3">
       {stats.map((stat) => (
         <div
           key={stat.label}
-          className={`bg-white rounded-lg shadow-sm border border-gray-200 p-2 ${stat.highlight ? 'ring-1 ring-blue-500' : ''
+          className={`bg-white rounded-lg shadow-sm border border-gray-200 p-1.5 sm:p-2 ${stat.highlight ? 'ring-1 ring-blue-500' : ''
             }`}
         >
-          <div className="text-xs text-gray-500 mb-0.5">{stat.label}</div>
-          <div className={`text-lg font-bold ${stat.color}`}>
+          <div className="text-[10px] sm:text-xs text-gray-500 mb-0.5 leading-tight">{stat.label}</div>
+          <div className={`text-sm sm:text-lg font-bold ${stat.color} leading-tight`}>
             {stat.value}
           </div>
         </div>

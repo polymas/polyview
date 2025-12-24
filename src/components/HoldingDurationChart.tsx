@@ -70,46 +70,48 @@ export const HoldingDurationChart: React.FC<HoldingDurationChartProps> = ({ dura
 
   if (durations.length === 0) {
     return (
-      <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-2">
-        <h3 className="text-sm font-semibold text-gray-900 mb-2">持仓时长分布（{days === 7 ? '近7天' : '近30天'}）</h3>
+      <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-1.5 sm:p-2">
+        <h3 className="text-xs sm:text-sm font-semibold text-gray-900 mb-2">持仓时长分布（{days === 7 ? '近7天' : '近30天'}）</h3>
         <p className="text-gray-500 text-center py-4 text-xs">暂无持仓数据</p>
       </div>
     );
   }
 
   return (
-    <div className="space-y-3">
+    <div className="space-y-2 sm:space-y-3">
       {/* 按时长分组统计 */}
-      <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-2">
-        <h3 className="text-sm font-semibold text-gray-900 mb-2">持仓时长分布（{days === 7 ? '近7天' : '近30天'}，按时长分组）</h3>
-        <ResponsiveContainer width="100%" height={150}>
-          <BarChart data={durationGroups}>
-            <CartesianGrid strokeDasharray="3 3" />
-            <XAxis dataKey="duration" />
-            <YAxis yAxisId="left" orientation="left" />
-            <YAxis yAxisId="right" orientation="right" />
-            <Tooltip
-              formatter={(value: any, name: string) => {
-                if (name === '持仓数量') return [value, name];
-                if (name === '平均盈亏') return [`$${Number(value).toFixed(2)}`, name];
-                return [value, name];
-              }}
-            />
-            <Legend />
-            <Bar yAxisId="left" dataKey="count" fill="#3b82f6" name="持仓数量" />
-            <Bar yAxisId="right" dataKey="avgPnL" name="平均盈亏">
-              {durationGroups.map((entry, index) => (
-                <Cell key={`cell-${index}`} fill={getPnLColor(entry.avgPnL)} />
-              ))}
-            </Bar>
-          </BarChart>
-        </ResponsiveContainer>
+      <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-1.5 sm:p-2">
+        <h3 className="text-xs sm:text-sm font-semibold text-gray-900 mb-2">持仓时长分布（{days === 7 ? '近7天' : '近30天'}，按时长分组）</h3>
+        <div className="h-[120px] sm:h-[150px]">
+          <ResponsiveContainer width="100%" height="100%">
+            <BarChart data={durationGroups}>
+              <CartesianGrid strokeDasharray="3 3" />
+              <XAxis dataKey="duration" tick={{ fontSize: 10 }} />
+              <YAxis yAxisId="left" orientation="left" tick={{ fontSize: 10 }} />
+              <YAxis yAxisId="right" orientation="right" tick={{ fontSize: 10 }} />
+              <Tooltip
+                formatter={(value: any, name: string) => {
+                  if (name === '持仓数量') return [value, name];
+                  if (name === '平均盈亏') return [`$${Number(value).toFixed(2)}`, name];
+                  return [value, name];
+                }}
+              />
+              <Legend wrapperStyle={{ fontSize: '10px' }} />
+              <Bar yAxisId="left" dataKey="count" fill="#3b82f6" name="持仓数量" />
+              <Bar yAxisId="right" dataKey="avgPnL" name="平均盈亏">
+                {durationGroups.map((entry, index) => (
+                  <Cell key={`cell-${index}`} fill={getPnLColor(entry.avgPnL)} />
+                ))}
+              </Bar>
+            </BarChart>
+          </ResponsiveContainer>
+        </div>
 
-        <div className="mt-2 grid grid-cols-3 gap-2 text-xs">
+        <div className="mt-2 grid grid-cols-2 sm:grid-cols-3 gap-1.5 sm:gap-2 text-xs">
           {durationGroups.map((group) => (
-            <div key={group.duration} className="bg-gray-50 rounded p-1.5">
-              <div className="font-medium text-gray-900 text-xs">{group.duration}</div>
-              <div className="text-gray-600 text-[10px] mt-0.5">
+            <div key={group.duration} className="bg-gray-50 rounded p-1 sm:p-1.5">
+              <div className="font-medium text-gray-900 text-[10px] sm:text-xs">{group.duration}</div>
+              <div className="text-gray-600 text-[9px] sm:text-[10px] mt-0.5">
                 {group.count} | ${group.avgPnL.toFixed(2)}
               </div>
             </div>

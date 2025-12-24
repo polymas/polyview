@@ -144,15 +144,15 @@ export const PnLTable: React.FC<PnLTableProps> = ({ propositions }) => {
   return (
     <div className="flex flex-col h-full min-h-0">
       {/* 过滤控件 */}
-      <div className="mb-4 flex items-center gap-4">
-        <span className="text-sm font-medium text-gray-700">状态过滤：</span>
-        <div className="flex gap-2">
+      <div className="mb-3 sm:mb-4 flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-4">
+        <span className="text-xs sm:text-sm font-medium text-gray-700">状态过滤：</span>
+        <div className="flex gap-1.5 sm:gap-2 flex-wrap">
           <button
             onClick={() => {
               setFilterStatus('ALL');
               setCurrentPage(1);
             }}
-            className={`px-4 py-2 text-sm rounded-md border transition-colors ${filterStatus === 'ALL'
+            className={`px-2 sm:px-4 py-1.5 sm:py-2 text-xs sm:text-sm rounded-md border transition-colors ${filterStatus === 'ALL'
               ? 'bg-blue-600 text-white border-blue-600'
               : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'
               }`}
@@ -164,7 +164,7 @@ export const PnLTable: React.FC<PnLTableProps> = ({ propositions }) => {
               setFilterStatus('CLOSED');
               setCurrentPage(1);
             }}
-            className={`px-4 py-2 text-sm rounded-md border transition-colors ${filterStatus === 'CLOSED'
+            className={`px-2 sm:px-4 py-1.5 sm:py-2 text-xs sm:text-sm rounded-md border transition-colors ${filterStatus === 'CLOSED'
               ? 'bg-blue-600 text-white border-blue-600'
               : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'
               }`}
@@ -176,7 +176,7 @@ export const PnLTable: React.FC<PnLTableProps> = ({ propositions }) => {
               setFilterStatus('OPEN');
               setCurrentPage(1);
             }}
-            className={`px-4 py-2 text-sm rounded-md border transition-colors ${filterStatus === 'OPEN'
+            className={`px-2 sm:px-4 py-1.5 sm:py-2 text-xs sm:text-sm rounded-md border transition-colors ${filterStatus === 'OPEN'
               ? 'bg-blue-600 text-white border-blue-600'
               : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'
               }`}
@@ -187,8 +187,8 @@ export const PnLTable: React.FC<PnLTableProps> = ({ propositions }) => {
       </div>
 
       {/* 表格 */}
-      <div className="flex-1 overflow-auto min-h-0 border border-gray-200 rounded-lg">
-        <table className="w-full bg-white table-fixed">
+      <div className="flex-1 overflow-x-auto min-h-0 border border-gray-200 rounded-lg">
+        <table className="w-full bg-white table-fixed min-w-[800px] sm:min-w-0">
           <thead className="bg-gray-50 sticky top-0 z-10">
             <tr>
               <th className="w-[25%] px-2 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
@@ -302,9 +302,9 @@ export const PnLTable: React.FC<PnLTableProps> = ({ propositions }) => {
 
       {/* 分页控件 */}
       {propositions.length > 0 && (
-        <div className="flex items-center justify-between mt-4 px-4 py-3 bg-white border border-gray-200 rounded-lg">
-          <div className="flex items-center gap-4">
-            <span className="text-sm text-gray-700">
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mt-3 sm:mt-4 px-2 sm:px-4 py-2 sm:py-3 bg-white border border-gray-200 rounded-lg">
+          <div className="flex items-center gap-2 sm:gap-4 flex-wrap">
+            <span className="text-xs sm:text-sm text-gray-700">
               每页显示
             </span>
             <select
@@ -313,35 +313,35 @@ export const PnLTable: React.FC<PnLTableProps> = ({ propositions }) => {
                 setItemsPerPage(Number(e.target.value));
                 setCurrentPage(1);
               }}
-              className="px-3 py-1 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="px-2 sm:px-3 py-1 border border-gray-300 rounded-md text-xs sm:text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
             >
               <option value={10}>10</option>
               <option value={20}>20</option>
               <option value={50}>50</option>
               <option value={100}>100</option>
             </select>
-            <span className="text-sm text-gray-700">
+            <span className="text-xs sm:text-sm text-gray-700">
               条，共 {filteredPropositions.length} 条
             </span>
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1 sm:gap-2 flex-wrap justify-center sm:justify-end">
             <button
               onClick={() => handlePageChange(1)}
               disabled={currentPage === 1}
-              className="px-3 py-1 text-sm border border-gray-300 rounded-md hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+              className="px-2 sm:px-3 py-1 text-xs sm:text-sm border border-gray-300 rounded-md hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
             >
               首页
             </button>
             <button
               onClick={() => handlePageChange(currentPage - 1)}
               disabled={currentPage === 1}
-              className="px-3 py-1 text-sm border border-gray-300 rounded-md hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+              className="px-2 sm:px-3 py-1 text-xs sm:text-sm border border-gray-300 rounded-md hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
             >
               上一页
             </button>
 
-            <div className="flex items-center gap-1">
+            <div className="flex items-center gap-0.5 sm:gap-1">
               {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
                 let pageNum: number;
                 if (totalPages <= 5) {
@@ -358,7 +358,7 @@ export const PnLTable: React.FC<PnLTableProps> = ({ propositions }) => {
                   <button
                     key={pageNum}
                     onClick={() => handlePageChange(pageNum)}
-                    className={`px-3 py-1 text-sm border rounded-md ${currentPage === pageNum
+                    className={`px-2 sm:px-3 py-1 text-xs sm:text-sm border rounded-md ${currentPage === pageNum
                       ? 'bg-blue-600 text-white border-blue-600'
                       : 'border-gray-300 hover:bg-gray-50'
                       }`}
@@ -372,19 +372,19 @@ export const PnLTable: React.FC<PnLTableProps> = ({ propositions }) => {
             <button
               onClick={() => handlePageChange(currentPage + 1)}
               disabled={currentPage === totalPages}
-              className="px-3 py-1 text-sm border border-gray-300 rounded-md hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+              className="px-2 sm:px-3 py-1 text-xs sm:text-sm border border-gray-300 rounded-md hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
             >
               下一页
             </button>
             <button
               onClick={() => handlePageChange(totalPages)}
               disabled={currentPage === totalPages}
-              className="px-3 py-1 text-sm border border-gray-300 rounded-md hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+              className="px-2 sm:px-3 py-1 text-xs sm:text-sm border border-gray-300 rounded-md hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
             >
               末页
             </button>
 
-            <span className="text-sm text-gray-700 ml-2">
+            <span className="text-xs sm:text-sm text-gray-700 ml-1 sm:ml-2 whitespace-nowrap">
               第 {currentPage} / {totalPages} 页
             </span>
           </div>
