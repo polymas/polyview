@@ -21,17 +21,81 @@
 
 ## 安装和运行
 
-1. 安装依赖：
+### 前置要求
+
+- Python 3.8+
+- Node.js 16+
+- npm 或 yarn
+
+### 安装依赖
+
+**Python依赖：**
+```bash
+pip install -r requirements.txt
+```
+
+**前端依赖：**
 ```bash
 npm install
 ```
 
-2. 启动开发服务器：
+### 启动服务
+
+#### 方式 1: 统一启动脚本（推荐）
+
+使用统一启动脚本同时启动前后端：
+
+```bash
+python start.py
+```
+
+或直接运行：
+
+```bash
+./start.py
+```
+
+脚本会自动：
+- ✅ 检查依赖是否安装
+- ✅ 启动后端服务（FastAPI，端口8002）
+- ✅ 启动前端服务（Vite，端口8001）
+- ✅ 显示服务日志
+- ✅ 按 Ctrl+C 优雅关闭所有服务
+
+#### 方式 2: 分别启动
+
+**启动后端：**
+```bash
+python activity.py
+```
+
+**启动前端：**
 ```bash
 npm run dev
 ```
 
-3. 构建生产版本：
+### 服务地址
+
+启动成功后访问：
+- **统一访问（推荐）**: http://localhost:8001
+  - 前端应用和API都通过此端口访问
+  - API请求（`/api/*`）会自动代理到后端（`http://localhost:8002`）
+  - 无需处理跨域问题
+
+**独立访问：**
+- **前端应用**: http://localhost:8001
+- **后端API**: http://localhost:8002
+- **API文档（Swagger UI）**: http://localhost:8002/docs
+- **API文档（ReDoc）**: http://localhost:8002/redoc
+
+### 工作原理
+
+- Vite开发服务器配置了代理，将 `/api/*` 请求转发到后端 `http://localhost:8002`
+- 前端代码使用相对路径 `/api` 访问后端API
+- 这样前后端看起来像同一个服务，避免跨域问题
+
+### 构建生产版本
+
 ```bash
 npm run build
 ```

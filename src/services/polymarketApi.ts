@@ -2,8 +2,8 @@ import axios from 'axios';
 import { PolymarketTransaction } from '../types';
 
 // 本地 HTTP 服务端点
-// 可通过环境变量 VITE_API_BASE_URL 配置，默认使用 localhost:8000
-const LOCAL_API_BASE_URL = 'http://localhost:8000';
+// 开发环境使用相对路径（通过Vite proxy代理），生产环境可通过环境变量配置
+const LOCAL_API_BASE_URL = (import.meta as any).env?.VITE_API_BASE_URL || '/api';
 
 /**
  * 从本地 HTTP 服务获取用户活动数据
@@ -28,7 +28,7 @@ async function getActivitiesFromLocalAPI(walletAddress: string): Promise<any[]> 
     throw new Error('本地 API 返回数据格式错误');
   } catch (error: any) {
     if (error.code === 'ECONNREFUSED') {
-      throw new Error('无法连接到本地 API 服务，请确保服务已启动在 http://localhost:8000');
+      throw new Error('无法连接到本地 API 服务，请确保服务已启动在 http://localhost:8002');
     }
     throw error;
   }
@@ -113,7 +113,7 @@ export async function getWalletTransactions(
     return transactions;
   } catch (error: any) {
     if (error.code === 'ECONNREFUSED') {
-      throw new Error('无法连接到本地 API 服务，请确保服务已启动在 http://localhost:8000');
+      throw new Error('无法连接到本地 API 服务，请确保服务已启动在 http://localhost:8002');
     }
     throw new Error(
       `无法获取交易记录: ${error.message}\n` +
