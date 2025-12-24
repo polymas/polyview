@@ -13,6 +13,9 @@ export default defineConfig({
         target: process.env.VITE_API_TARGET || 'http://localhost:8002',
         changeOrigin: true,
         rewrite: (path) => path.replace(/^\/api/, ''),
+        secure: false, // 如果是https，设置为false
+        ws: true, // 支持websocket
+        timeout: 60000, // 超时时间60秒
       },
     },
   },
