@@ -2,6 +2,12 @@
 """
 统一启动前后端服务
 同时启动 FastAPI 后端和 Vite 前端开发服务器
+
+环境变量配置:
+- HOST: 服务监听地址，默认0.0.0.0（允许公网访问）
+- BACKEND_PORT: 后端端口，默认8002
+- FRONTEND_PORT: 前端端口，默认8001
+- API_TARGET: 前端代理的后端地址，默认http://localhost:8002
 """
 
 import subprocess
@@ -13,6 +19,12 @@ from pathlib import Path
 
 # 项目根目录
 PROJECT_ROOT = Path(__file__).parent.absolute()
+
+# 配置（可通过环境变量覆盖）
+HOST = os.getenv('HOST', '0.0.0.0')
+BACKEND_PORT = int(os.getenv('BACKEND_PORT', '8002'))
+FRONTEND_PORT = int(os.getenv('FRONTEND_PORT', '8001'))
+API_TARGET = os.getenv('API_TARGET', f'http://{HOST}:{BACKEND_PORT}')
 
 # 进程列表
 processes = []
@@ -81,12 +93,13 @@ def check_dependencies():
 def start_backend():
     """启动后端服务"""
     print("\n🚀 启动后端服务 (FastAPI)...")
-    print("   后端地址: http://localhost:8002")
-    print("   API文档: http://localhost:8002/docs")
+    print(f"   后端地址: http://{HOST}:{BACKEND_PORT}")
+    print(f"   API文档: http://{HOST}:{BACKEND_PORT}/docs")
 
     backend_process = subprocess.Popen(
         [sys.executable, str(PROJECT_ROOT / "activity.py")],
         cwd=PROJECT_ROOT,
+        env={**os.environ, 'HOST': HOST, 'PORT': str(BACKEND_PORT)},
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
         text=True,
@@ -112,11 +125,13 @@ def start_backend():
 def start_frontend():
     """启动前端服务"""
     print("\n🚀 启动前端服务 (Vite)...")
-    print("   前端地址: http://localhost:8001")
+    print(f"   前端地址: http://{HOST}:{FRONTEND_PORT}")
 
     frontend_process = subprocess.Popen(
         ["npm", "run", "dev"],
         cwd=PROJECT_ROOT,
+        env={**os.environ,
+             'VITE_PORT': str(FRONTEND_PORT), 'VITE_API_TARGET': API_TARGET},
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
         text=True,
@@ -193,14 +208,15 @@ def main():
     print("✅ 所有服务已启动成功！")
     print("=" * 60)
     print("\n服务地址:")
-    print("  🌐 统一访问: http://localhost:8001")
+    print(f"  🌐 统一访问: http://{HOST}:{FRONTEND_PORT}")
     print("     - 前端应用和API都通过此端口访问")
     print("     - API请求会自动代理到后端")
     print("\n独立访问:")
-    print("  前端应用: http://localhost:8001")
-    print("  后端API:  http://localhost:8002")
-    print("  API文档:  http://localhost:8002/docs")
-    print("\n按 Ctrl+C 停止所有服务")
+    print(f"  前端应用: http://{HOST}:{FRONTEND_PORT}")
+    print(f"  后端API:  http://{HOST}:{BACKEND_PORT}")
+    print(f"  API文档:  http://{HOST}:{BACKEND_PORT}/docs")
+    print(f"\n公网访问: 使用服务器IP地址替换 {HOST}")
+    print("按 Ctrl+C 停止所有服务")
     print("=" * 60 + "\n")
 
     # 打印日志

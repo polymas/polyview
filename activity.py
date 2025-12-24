@@ -802,9 +802,12 @@ async def global_exception_handler(request, exc):
 
 
 if __name__ == "__main__":
+    import os
+    host = os.getenv("HOST", "0.0.0.0")
+    port = int(os.getenv("PORT", "8002"))
     uvicorn.run(
         "activity:app",
-        host="0.0.0.0",
-        port=8002,
+        host=host,
+        port=port,
         reload=True
     )

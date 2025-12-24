@@ -76,6 +76,8 @@ npm run dev
 
 ### 服务地址
 
+#### 本地访问
+
 启动成功后访问：
 - **统一访问（推荐）**: http://localhost:8001
   - 前端应用和API都通过此端口访问
@@ -87,6 +89,71 @@ npm run dev
 - **后端API**: http://localhost:8002
 - **API文档（Swagger UI）**: http://localhost:8002/docs
 - **API文档（ReDoc）**: http://localhost:8002/redoc
+
+#### 公网访问
+
+服务默认监听 `0.0.0.0`，支持公网访问。
+
+**方式1：使用环境变量配置（推荐）**
+
+创建 `.env` 文件（参考 `.env.example`）：
+```bash
+# 前端配置
+VITE_PORT=8001
+VITE_API_TARGET=http://your-server-ip:8002
+
+# 后端配置
+HOST=0.0.0.0
+BACKEND_PORT=8002
+FRONTEND_PORT=8001
+API_TARGET=http://your-server-ip:8002
+```
+
+然后启动：
+```bash
+python start.py
+```
+
+**方式2：直接设置环境变量**
+
+```bash
+# Linux/Mac
+export HOST=0.0.0.0
+export BACKEND_PORT=8002
+export FRONTEND_PORT=8001
+export VITE_API_TARGET=http://your-server-ip:8002
+python start.py
+
+# Windows
+set HOST=0.0.0.0
+set BACKEND_PORT=8002
+set FRONTEND_PORT=8001
+set VITE_API_TARGET=http://your-server-ip:8002
+python start.py
+```
+
+**方式3：前后端分离部署**
+
+如果前后端部署在不同服务器：
+
+1. **前端服务器**：创建 `.env` 文件
+   ```
+   VITE_API_BASE_URL=http://your-backend-server-ip:8002
+   ```
+
+2. **后端服务器**：直接启动
+   ```bash
+   python activity.py
+   ```
+
+访问地址：
+- 前端：`http://your-frontend-server-ip:8001`
+- 后端：`http://your-backend-server-ip:8002`
+
+**注意事项：**
+- 确保防火墙开放相应端口（8001和8002）
+- 如果使用云服务器，确保安全组规则允许相应端口访问
+- 生产环境建议使用Nginx反向代理和HTTPS
 
 ### 工作原理
 
