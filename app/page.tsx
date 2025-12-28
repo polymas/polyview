@@ -1,3 +1,5 @@
+'use client';
+
 import { useState } from 'react';
 import { getWalletTransactions } from './services/polymarketApi';
 import { calculatePropositionPnL, calculateDailyPnL, calculateStatistics, calculateHoldingDurations } from './utils/pnlCalculator';
@@ -7,9 +9,8 @@ import { PnLCalendar } from './components/PnLCalendar';
 import { TradingVolumeCalendar } from './components/TradingVolumeCalendar';
 import { Statistics as StatisticsComponent } from './components/Statistics';
 import { HoldingDurationChart } from './components/HoldingDurationChart';
-import './App.css';
 
-function App() {
+export default function Home() {
   const [walletAddress, setWalletAddress] = useState<string>('0x45deaaD70997b2998FBb9433B1819178e34B409C');
   const [loading, setLoading] = useState<boolean>(false);
   const [transactions, setTransactions] = useState<PolymarketTransaction[]>([]);
@@ -18,7 +19,7 @@ function App() {
   const [statistics, setStatistics] = useState<Statistics | null>(null);
   const [holdingDurations, setHoldingDurations] = useState<HoldingDuration[]>([]);
   const [currentMonth, setCurrentMonth] = useState<Date>(new Date());
-  const [statisticsDays, setStatisticsDays] = useState<number>(7);  // 统计天数：7天或30天
+  const [statisticsDays, setStatisticsDays] = useState<number>(7);
 
   const handleSearch = async () => {
     if (!walletAddress.trim()) {
@@ -32,7 +33,6 @@ function App() {
     }
 
     setLoading(true);
-    // 清空之前的数据
     setTransactions([]);
     setPropositions([]);
     setDailyPnL([]);
@@ -108,7 +108,6 @@ function App() {
                   {loading ? '加载中...' : '查询'}
                 </button>
               </div>
-              {/* 统计时间范围选择 */}
               <div className="flex items-center gap-1 border border-gray-300 rounded-lg p-0.5 self-start sm:self-auto">
                 <button
                   onClick={() => {
@@ -151,12 +150,10 @@ function App() {
 
         {statistics && (
           <div className="flex flex-col gap-3">
-            {/* 上部分：统计和日历 */}
             <div className="flex-shrink-0">
               <StatisticsComponent statistics={statistics} days={statisticsDays} />
 
               <div className="mt-3 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2 sm:gap-3">
-                {/* 盈亏日历 */}
                 <div className="flex flex-col">
                   <div className="flex items-center justify-between mb-2">
                     <h2 className="text-sm sm:text-base font-semibold text-gray-900">盈亏日历</h2>
@@ -180,7 +177,6 @@ function App() {
                   </div>
                 </div>
 
-                {/* 交易额日历 */}
                 <div className="flex flex-col">
                   <div className="flex items-center justify-between mb-2">
                     <h2 className="text-sm sm:text-base font-semibold text-gray-900">交易额日历</h2>
@@ -204,7 +200,6 @@ function App() {
                   </div>
                 </div>
 
-                {/* 持仓时长分布 - 暂时隐藏 */}
                 {false && holdingDurations.length > 0 && (
                   <div className="flex flex-col md:col-span-2 lg:col-span-1">
                     <h2 className="text-sm sm:text-base font-semibold text-gray-900 mb-2">持仓时长分布</h2>
@@ -216,7 +211,6 @@ function App() {
               </div>
             </div>
 
-            {/* 下部分：表格（全宽） */}
             <div className="flex-1 flex flex-col min-h-[400px] sm:min-h-[500px]">
               <h2 className="text-sm sm:text-base font-semibold text-gray-900 mb-2">
                 命题盈亏表格
@@ -237,7 +231,4 @@ function App() {
     </div>
   );
 }
-
-export default App;
-
 

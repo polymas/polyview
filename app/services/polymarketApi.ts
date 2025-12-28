@@ -1,19 +1,15 @@
-/// <reference types="vite/client" />
 import axios from 'axios';
 import { PolymarketTransaction } from '../types';
 
-// 本地 HTTP 服务端点
-// 开发环境使用相对路径（通过Vite proxy代理），生产环境可通过环境变量配置
-// 如果设置了VITE_API_BASE_URL，直接使用该地址（适用于生产环境）
-// 否则使用相对路径/api（适用于开发环境，通过Vite proxy）
-const LOCAL_API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '/api';
+// Next.js API 端点
+const API_BASE_URL = '/api';
 
 /**
- * 从本地 HTTP 服务获取用户活动数据
+ * 从本地 API 获取用户活动数据
  */
 async function getActivitiesFromLocalAPI(walletAddress: string): Promise<any[]> {
   try {
-    const response = await axios.get(`${LOCAL_API_BASE_URL}/activity`, {
+    const response = await axios.get(`${API_BASE_URL}/activity`, {
       params: {
         user: walletAddress,
         limit: -1,  // 获取所有历史记录
@@ -30,8 +26,8 @@ async function getActivitiesFromLocalAPI(walletAddress: string): Promise<any[]> 
 
     throw new Error('本地 API 返回数据格式错误');
   } catch (error: any) {
-    if (error.code === 'ECONNREFUSED') {
-      throw new Error('无法连接到本地 API 服务，请确保服务已启动在 http://localhost:8002');
+    if (error.code === 'ECONNREFUSED' || error.response?.status === 500) {
+      throw new Error('无法连接到 API 服务，请确保服务已启动');
     }
     throw error;
   }
@@ -79,13 +75,13 @@ function transformActivityToTransaction(activity: any): PolymarketTransaction {
     timestamp,
     market: activity.conditionId || activity.market || 'unknown',
     marketQuestion: activity.title || activity.question || 'Unknown Market',
-    outcome: activity.outcome || '',  // 不强制设置YES，如果没有outcome就为空字符串
+    outcome: activity.outcome || '',
     type: isBuy ? 'BUY' : 'SELL',
     amount,
     price: calculatedPrice,
     totalCost,
     user: activity.proxyWallet || activity.user || '',
-    originalType: originalType as 'TRADE' | 'REDEEM',  // 保存原始类型
+    originalType: originalType as 'TRADE' | 'REDEEM',
   };
 }
 
@@ -115,17 +111,11 @@ export async function getWalletTransactions(
     transactions.sort((a, b) => a.timestamp - b.timestamp);
     return transactions;
   } catch (error: any) {
-    if (error.code === 'ECONNREFUSED') {
-      const apiUrl = LOCAL_API_BASE_URL.startsWith('http') ? LOCAL_API_BASE_URL : 'http://localhost:8002';
-      throw new Error(`无法连接到 API 服务，请确保服务已启动在 ${apiUrl}`);
-    }
     throw new Error(
       `无法获取交易记录: ${error.message}\n` +
       `请确认：\n` +
-      `1. API 服务已启动（运行: python activity.py）\n` +
+      `1. API 服务已启动\n` +
       `2. 钱包地址 ${walletAddress} 在 Polymarket 上有交易记录`
     );
   }
 }
-
-
