@@ -82,6 +82,8 @@ function transformActivityToTransaction(activity: any): PolymarketTransaction {
     totalCost,
     user: activity.proxyWallet || activity.user || '',
     originalType: originalType as 'TRADE' | 'REDEEM',
+    slug: activity.slug || '',
+    eventSlug: activity.eventSlug || '',
   };
 }
 

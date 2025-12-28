@@ -174,9 +174,21 @@ export function calculatePropositionPnL(
     // 使用第一个 outcome 作为主要显示（如果没有outcome则为空）
     const primaryOutcome = outcomes[0] || '';
 
+    // 获取slug和eventSlug（从第一个交易中获取）
+    const slug = txs[0].slug || '';
+    const eventSlug = txs[0].eventSlug || '';
+
+    // 过滤掉只有平仓（REDEEM）没有开仓（BUY）的数据
+    if (buyTxs.length === 0 && sellTxs.length > 0) {
+      // 跳过只有REDEEM没有开仓的数据
+      return;
+    }
+
     propositions.push({
       market: conditionId,
       question: txs[0].marketQuestion,
+      slug,
+      eventSlug,
       totalInvested,
       totalReturned,
       currentValue,

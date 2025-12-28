@@ -231,7 +231,19 @@ export const PnLTable: React.FC<PnLTableProps> = ({ propositions }) => {
               <tr key={`${prop.market}-${index}`} className="hover:bg-gray-50">
                 <td className="px-2 py-2">
                   <div className="text-sm font-medium text-gray-900 truncate" title={prop.question}>
-                    {prop.question}
+                    {prop.eventSlug || prop.slug ? (
+                      <a
+                        href={`https://polymarket.com/event/${prop.eventSlug || prop.slug}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-blue-600 hover:text-blue-800 hover:underline truncate block"
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        {prop.question}
+                      </a>
+                    ) : (
+                      <span>{prop.question}</span>
+                    )}
                   </div>
                   <div className="text-xs text-gray-500 truncate" title={prop.market}>{prop.market}</div>
                 </td>

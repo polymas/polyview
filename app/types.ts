@@ -11,6 +11,8 @@ export interface PolymarketTransaction {
   totalCost: number;
   user: string;
   originalType?: 'TRADE' | 'REDEEM';  // 原始类型，用于区分TRADE和REDEEM
+  slug?: string;  // 命题的slug，用于构建链接
+  eventSlug?: string;  // 事件的slug
 }
 
 // 命题盈亏数据
@@ -29,6 +31,8 @@ export interface PropositionPnL {
   outcomes?: string[];  // 多个 outcome 列表
   openTime?: number;  // 开仓时间戳
   closeTime?: number;  // 平仓时间戳（最后卖出时间，OPEN状态为undefined）
+  slug?: string;  // 命题的slug，用于构建链接
+  eventSlug?: string;  // 事件的slug
 }
 
 // 每日盈亏数据
