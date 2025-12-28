@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { getWalletTransactions } from './services/polymarketApi';
 import { calculatePropositionPnL, calculateDailyPnL, calculateStatistics, calculateHoldingDurations } from './utils/pnlCalculator';
 import { PolymarketTransaction, PropositionPnL, DailyPnL, Statistics, HoldingDuration } from './types';
@@ -9,9 +9,10 @@ import { PnLCalendar } from './components/PnLCalendar';
 import { TradingVolumeCalendar } from './components/TradingVolumeCalendar';
 import { Statistics as StatisticsComponent } from './components/Statistics';
 import { HoldingDurationChart } from './components/HoldingDurationChart';
+import { getRecentAddresses, addRecentAddress, RecentAddress } from './utils/recentAddresses';
 
 export default function Home() {
-  const [walletAddress, setWalletAddress] = useState<string>('0x45deaaD70997b2998FBb9433B1819178e34B409C');
+  const [walletAddress, setWalletAddress] = useState<string>('0x17db3fcd93ba12d38382a0cade24b200185c5f6d');
   const [loading, setLoading] = useState<boolean>(false);
   const [transactions, setTransactions] = useState<PolymarketTransaction[]>([]);
   const [propositions, setPropositions] = useState<PropositionPnL[]>([]);
@@ -20,16 +21,29 @@ export default function Home() {
   const [holdingDurations, setHoldingDurations] = useState<HoldingDuration[]>([]);
   const [currentMonth, setCurrentMonth] = useState<Date>(new Date());
   const [statisticsDays, setStatisticsDays] = useState<number>(7);
+  const [recentAddresses, setRecentAddresses] = useState<RecentAddress[]>([]);
 
-  const handleSearch = async () => {
-    if (!walletAddress.trim()) {
+  // 加载最近查询的地址
+  useEffect(() => {
+    setRecentAddresses(getRecentAddresses());
+  }, []);
+
+  const handleSearch = async (address?: string) => {
+    const targetAddress = address || walletAddress;
+    
+    if (!targetAddress.trim()) {
       alert('请输入钱包地址');
       return;
     }
 
-    if (!walletAddress.startsWith('0x') || walletAddress.length !== 42) {
+    if (!targetAddress.startsWith('0x') || targetAddress.length !== 42) {
       alert('请输入有效的以太坊钱包地址（0x 开头的 42 位地址）');
       return;
+    }
+
+    // 如果传入了地址，更新状态
+    if (address) {
+      setWalletAddress(address);
     }
 
     setLoading(true);
@@ -40,7 +54,7 @@ export default function Home() {
     setHoldingDurations([]);
 
     try {
-      const txData = await getWalletTransactions(walletAddress);
+      const txData = await getWalletTransactions(targetAddress);
 
       if (txData.length === 0) {
         alert('该钱包地址在 Polymarket 上没有找到交易记录');
@@ -61,6 +75,10 @@ export default function Home() {
 
       const durations = calculateHoldingDurations(txData, statisticsDays);
       setHoldingDurations(durations);
+
+      // 保存到最近查询列表
+      addRecentAddress(targetAddress);
+      setRecentAddresses(getRecentAddresses());
     } catch (error: any) {
       alert(error.message || '获取交易记录失败，请检查钱包地址是否正确或稍后重试');
     } finally {
@@ -91,7 +109,7 @@ export default function Home() {
             </div>
 
             <div className="flex flex-col sm:flex-row flex-shrink-0 gap-2 sm:items-center">
-              <div className="flex gap-2">
+              <div className="flex gap-2 items-center flex-1">
                 <input
                   type="text"
                   value={walletAddress}
@@ -101,12 +119,29 @@ export default function Home() {
                   onKeyPress={(e) => e.key === 'Enter' && handleSearch()}
                 />
                 <button
-                  onClick={handleSearch}
+                  onClick={() => handleSearch()}
                   disabled={loading}
                   className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed text-sm whitespace-nowrap"
                 >
                   {loading ? '加载中...' : '查询'}
                 </button>
+                {recentAddresses.length > 0 && (
+                  <div className="flex items-center gap-1.5 px-2 py-1 border border-gray-300 rounded-lg bg-white">
+                    <span className="text-xs text-gray-500 hidden sm:inline">最近:</span>
+                    <div className="flex gap-1 flex-wrap">
+                      {recentAddresses.slice(0, 5).map((item) => (
+                        <button
+                          key={item.address}
+                          onClick={() => handleSearch(item.address)}
+                          className="px-2 py-1 text-xs bg-gray-100 hover:bg-gray-200 text-gray-700 rounded transition-colors truncate max-w-[120px] sm:max-w-[150px]"
+                          title={item.address}
+                        >
+                          {item.address.slice(0, 6)}...{item.address.slice(-4)}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </div>
               <div className="flex items-center gap-1 border border-gray-300 rounded-lg p-0.5 self-start sm:self-auto">
                 <button

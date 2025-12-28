@@ -4,7 +4,7 @@ const BASE_URL = 'https://data-api.polymarket.com';
 
 const BATCH_SIZE_DEFAULT = 100;
 const BATCH_SIZE_MAX = 100;
-const THREE_MONTHS_DAYS = 90;
+const SIX_MONTHS_DAYS = 180; // 6个月
 
 function createSession(): AxiosInstance {
   const instance = axios.create({
@@ -77,26 +77,26 @@ export async function fetchUserActivityFromAPI(
   throw new Error(`Polymarket API 请求失败: ${lastError?.message || '未知错误'}`);
 }
 
-export function filterRecentData(data: any[], days: number = THREE_MONTHS_DAYS): any[] {
+export function filterRecentData(data: any[], days: number = SIX_MONTHS_DAYS): any[] {
   const cutoffTimestamp = Math.floor((Date.now() / 1000) - days * 24 * 60 * 60);
   const filtered: any[] = [];
-  
+
+  // 遍历所有数据，不过滤掉任何在6个月内的数据
+  // 注意：不再使用 break，因为同一批次可能包含不同月份的数据
   for (const item of data) {
     const timestamp = normalizeTimestamp(item.timestamp || 0);
     if (timestamp >= cutoffTimestamp) {
       filtered.push(item);
-    } else {
-      break; // 数据已排序，遇到旧数据即可停止
     }
   }
-  
+
   return filtered;
 }
 
 export function deduplicateByKey(data: any[]): any[] {
   const seen = new Set<string>();
   const unique: any[] = [];
-  
+
   for (const item of data) {
     const key = `${item.transactionHash || ''}_${item.conditionId || ''}`;
     if (!seen.has(key)) {
@@ -104,7 +104,7 @@ export function deduplicateByKey(data: any[]): any[] {
       unique.push(item);
     }
   }
-  
+
   return unique;
 }
 
@@ -164,7 +164,7 @@ export async function getAllUserActivity(
   excludeDepositsWithdrawals: boolean = true
 ): Promise<any[]> {
   const actualBatchSize = Math.min(batchSize, BATCH_SIZE_MAX);
-  const cutoffTimestamp = Math.floor((Date.now() / 1000) - THREE_MONTHS_DAYS * 24 * 60 * 60);
+  const cutoffTimestamp = Math.floor((Date.now() / 1000) - SIX_MONTHS_DAYS * 24 * 60 * 60);
 
   // 获取缓存数据
   const cachedData = useCache
@@ -187,9 +187,9 @@ export async function getAllUserActivity(
       );
 
       if (firstBatch && firstBatch.length > 0) {
-        const filteredBatch = filterRecentData(firstBatch, THREE_MONTHS_DAYS);
+        const filteredBatch = filterRecentData(firstBatch, SIX_MONTHS_DAYS);
         if (filteredBatch.length > 0) {
-          const cachedRecent = filterRecentData(cachedData, THREE_MONTHS_DAYS);
+          const cachedRecent = filterRecentData(cachedData, SIX_MONTHS_DAYS);
           const cachedKeys = new Set(
             cachedRecent.map((item) => `${item.transactionHash || ''}_${item.conditionId || ''}`)
           );
@@ -198,7 +198,7 @@ export async function getAllUserActivity(
           );
 
           const isSubset = Array.from(firstBatchKeys).every((key) => cachedKeys.has(key));
-          
+
           if (isSubset) {
             // 返回空数组，后续会使用缓存
           } else {
@@ -214,7 +214,7 @@ export async function getAllUserActivity(
 
   // 循环获取数据
   let lastBatchMinTimestamp: number | null = null;
-  
+
   while (true) {
     try {
       const batch = await fetchUserActivityFromAPI(
@@ -230,9 +230,31 @@ export async function getAllUserActivity(
         break;
       }
 
-      const filteredBatch = filterRecentData(batch, THREE_MONTHS_DAYS);
+      const filteredBatch = filterRecentData(batch, SIX_MONTHS_DAYS);
+
+      // 如果过滤后的批次为空，检查是否所有数据都超过6个月
+      // 如果是，说明已经获取完所有6个月内的数据，可以停止
+      // 但需要检查是否还有更早的数据需要获取
       if (filteredBatch.length === 0) {
-        break;
+        // 检查批次中最早的时间戳是否还在6个月内
+        if (batch.length > 0) {
+          const earliestInBatch = Math.min(
+            ...batch.map(item => normalizeTimestamp(item.timestamp || 0))
+          );
+          if (earliestInBatch < cutoffTimestamp) {
+            // 所有数据都超过6个月，停止获取
+            break;
+          }
+        } else {
+          break;
+        }
+        // 如果批次为空但可能还有数据，继续获取下一批
+        offset += actualBatchSize;
+        if (offset > 10000) {
+          break;
+        }
+        await new Promise((resolve) => setTimeout(resolve, 500));
+        continue;
       }
 
       // 检测时间逆序
@@ -267,7 +289,8 @@ export async function getAllUserActivity(
       }
 
       offset += actualBatchSize;
-      if (offset > 10000) {
+      // 增加offset限制，确保能获取更多历史数据
+      if (offset > 50000) {
         break;
       }
 
@@ -281,7 +304,7 @@ export async function getAllUserActivity(
   // 合并缓存和API数据
   if (cachedData && cachedData.length > 0) {
     const mergedData = deduplicateByKey(allActivities);
-    const cachedRecent = filterRecentData(cachedData, THREE_MONTHS_DAYS);
+    const cachedRecent = filterRecentData(cachedData, SIX_MONTHS_DAYS);
     const cachedKeys = new Set(
       mergedData.map((item) => `${item.transactionHash || ''}_${item.conditionId || ''}`)
     );
