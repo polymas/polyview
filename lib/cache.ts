@@ -113,6 +113,9 @@ export class CacheManager {
     });
 
     insertMany(activities);
+    
+    // 自动清理半年前的旧数据
+    this.autoCleanOldData();
   }
 
   getAllCachedActivities(
@@ -152,6 +155,30 @@ export class CacheManager {
     }
 
     return result || {};
+  }
+
+  /**
+   * 清理半年前（180天）的旧数据
+   * @returns 删除的记录数
+   */
+  cleanOldData(days: number = 180): number {
+    const cutoffTimestamp = Math.floor((Date.now() / 1000) - days * 24 * 60 * 60);
+    const result = this.db.prepare(`
+      DELETE FROM user_activities 
+      WHERE timestamp < ?
+    `).run(cutoffTimestamp);
+    
+    return result.changes || 0;
+  }
+
+  /**
+   * 自动清理旧数据（在保存新数据时调用，避免频繁清理）
+   */
+  autoCleanOldData(): void {
+    // 每次保存时，有 1% 的概率触发清理（避免频繁清理影响性能）
+    if (Math.random() < 0.01) {
+      this.cleanOldData(180);
+    }
   }
 }
 

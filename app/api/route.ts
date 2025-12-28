@@ -9,6 +9,7 @@ export async function GET() {
       '/api/health': '健康检查',
       '/api/cache/stats': '查看缓存统计',
       '/api/cache/clear': '清除用户缓存',
+      '/api/cache/clean': '清理半年前的旧数据',
     },
   });
 }
