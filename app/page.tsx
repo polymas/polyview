@@ -1,6 +1,7 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback, Suspense } from 'react';
+import { useSearchParams, useRouter, usePathname } from 'next/navigation';
 import { getWalletTransactions } from './services/polymarketApi';
 import { calculatePropositionPnL, calculateDailyPnL, calculateStatistics, calculateHoldingDurations } from './utils/pnlCalculator';
 import { PolymarketTransaction, PropositionPnL, DailyPnL, Statistics, HoldingDuration } from './types';
@@ -11,8 +12,15 @@ import { Statistics as StatisticsComponent } from './components/Statistics';
 import { HoldingDurationChart } from './components/HoldingDurationChart';
 import { getRecentAddresses, addRecentAddress, RecentAddress } from './utils/recentAddresses';
 
-export default function Home() {
-  const [walletAddress, setWalletAddress] = useState<string>('0x17db3fcd93ba12d38382a0cade24b200185c5f6d');
+function HomeContent() {
+  const searchParams = useSearchParams();
+  const router = useRouter();
+  const pathname = usePathname();
+
+  const defaultAddress = '0x17db3fcd93ba12d38382a0cade24b200185c5f6d';
+  const addressFromUrl = searchParams.get('address') || defaultAddress;
+
+  const [walletAddress, setWalletAddress] = useState<string>(addressFromUrl);
   const [loading, setLoading] = useState<boolean>(false);
   const [transactions, setTransactions] = useState<PolymarketTransaction[]>([]);
   const [propositions, setPropositions] = useState<PropositionPnL[]>([]);
@@ -22,15 +30,34 @@ export default function Home() {
   const [currentMonth, setCurrentMonth] = useState<Date>(new Date());
   const [statisticsDays, setStatisticsDays] = useState<number>(7);
   const [recentAddresses, setRecentAddresses] = useState<RecentAddress[]>([]);
+  const [initialized, setInitialized] = useState<boolean>(false);
+
+  // 更新URL参数
+  const updateUrlAddress = (address: string) => {
+    const params = new URLSearchParams(searchParams.toString());
+    if (address && address !== defaultAddress) {
+      params.set('address', address);
+    } else {
+      params.delete('address');
+    }
+    router.replace(`${pathname}?${params.toString()}`, { scroll: false });
+  };
 
   // 加载最近查询的地址
   useEffect(() => {
     setRecentAddresses(getRecentAddresses());
   }, []);
 
-  const handleSearch = async (address?: string) => {
+  // 同步URL参数到输入框
+  useEffect(() => {
+    if (addressFromUrl && addressFromUrl !== walletAddress) {
+      setWalletAddress(addressFromUrl);
+    }
+  }, [addressFromUrl]);
+
+  const handleSearch = useCallback(async (address?: string) => {
     const targetAddress = address || walletAddress;
-    
+
     if (!targetAddress.trim()) {
       alert('请输入钱包地址');
       return;
@@ -45,6 +72,9 @@ export default function Home() {
     if (address) {
       setWalletAddress(address);
     }
+
+    // 更新URL参数
+    updateUrlAddress(targetAddress);
 
     setLoading(true);
     setTransactions([]);
@@ -84,7 +114,17 @@ export default function Home() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [walletAddress, statisticsDays, searchParams, pathname, router, defaultAddress]);
+
+  // 从URL参数初始化地址并自动加载
+  useEffect(() => {
+    if (!initialized && addressFromUrl && addressFromUrl !== defaultAddress) {
+      setInitialized(true);
+      handleSearch(addressFromUrl);
+    } else if (!initialized) {
+      setInitialized(true);
+    }
+  }, [addressFromUrl, initialized, defaultAddress, handleSearch]);
 
   const handlePrevMonth = () => {
     setCurrentMonth(new Date(currentMonth.getFullYear(), currentMonth.getMonth() - 1, 1));
@@ -264,6 +304,20 @@ export default function Home() {
         )}
       </div>
     </div>
+  );
+}
+
+export default function Home() {
+  return (
+    <Suspense fallback={
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+        <div className="text-center text-gray-500">
+          <p>加载中...</p>
+        </div>
+      </div>
+    }>
+      <HomeContent />
+    </Suspense>
   );
 }
 
