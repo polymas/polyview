@@ -10,7 +10,7 @@ import { PnLCalendar } from './components/PnLCalendar';
 import { TradingVolumeCalendar } from './components/TradingVolumeCalendar';
 import { Statistics as StatisticsComponent } from './components/Statistics';
 import { HoldingDurationChart } from './components/HoldingDurationChart';
-import { getRecentAddresses, addRecentAddress, RecentAddress } from './utils/recentAddresses';
+import { getRecentAddresses, addRecentAddress, RecentAddress, isFavorite, addFavorite, removeFavorite, getFavoriteNote } from './utils/recentAddresses';
 
 function HomeContent() {
   const searchParams = useSearchParams();
@@ -31,6 +31,9 @@ function HomeContent() {
   const [statisticsDays, setStatisticsDays] = useState<number>(7);
   const [recentAddresses, setRecentAddresses] = useState<RecentAddress[]>([]);
   const [initialized, setInitialized] = useState<boolean>(false);
+  const [showFavoriteModal, setShowFavoriteModal] = useState<boolean>(false);
+  const [favoriteNote, setFavoriteNote] = useState<string>('');
+  const [shareSuccess, setShareSuccess] = useState<boolean>(false);
 
   // 更新URL参数
   const updateUrlAddress = (address: string) => {
@@ -134,6 +137,58 @@ function HomeContent() {
     setCurrentMonth(new Date(currentMonth.getFullYear(), currentMonth.getMonth() + 1, 1));
   };
 
+  // 处理收藏
+  const handleFavorite = () => {
+    if (!walletAddress.trim() || !walletAddress.startsWith('0x') || walletAddress.length !== 42) {
+      alert('请先输入有效的钱包地址');
+      return;
+    }
+
+    const currentNote = getFavoriteNote(walletAddress);
+    setFavoriteNote(currentNote || '');
+    setShowFavoriteModal(true);
+  };
+
+  // 确认收藏
+  const handleConfirmFavorite = () => {
+    if (!walletAddress.trim()) {
+      return;
+    }
+
+    if (favoriteNote.trim()) {
+      addFavorite(walletAddress, favoriteNote.trim());
+    } else {
+      removeFavorite(walletAddress);
+    }
+
+    setShowFavoriteModal(false);
+    setRecentAddresses(getRecentAddresses());
+  };
+
+  // 处理分享
+  const handleShare = async () => {
+    try {
+      const url = `${window.location.origin}${pathname}?address=${walletAddress}`;
+      await navigator.clipboard.writeText(url);
+      setShareSuccess(true);
+      setTimeout(() => setShareSuccess(false), 2000);
+    } catch (error) {
+      // 降级方案：使用传统方法
+      const textArea = document.createElement('textarea');
+      textArea.value = `${window.location.origin}${pathname}?address=${walletAddress}`;
+      document.body.appendChild(textArea);
+      textArea.select();
+      try {
+        document.execCommand('copy');
+        setShareSuccess(true);
+        setTimeout(() => setShareSuccess(false), 2000);
+      } catch (err) {
+        alert('复制失败，请手动复制URL');
+      }
+      document.body.removeChild(textArea);
+    }
+  };
+
   return (
     <div className="min-h-screen bg-gray-50">
       <div className="container mx-auto px-2 sm:px-4 py-2 sm:py-4">
@@ -165,6 +220,27 @@ function HomeContent() {
                 >
                   {loading ? '加载中...' : '查询'}
                 </button>
+                {statistics && (
+                  <>
+                    <button
+                      onClick={handleFavorite}
+                      className={`px-3 py-2 rounded-lg text-sm whitespace-nowrap transition-colors ${isFavorite(walletAddress)
+                        ? 'bg-yellow-500 text-white hover:bg-yellow-600'
+                        : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+                        }`}
+                      title={isFavorite(walletAddress) ? '已收藏，点击修改备注' : '收藏'}
+                    >
+                      ⭐
+                    </button>
+                    <button
+                      onClick={handleShare}
+                      className="px-3 py-2 bg-green-500 text-white rounded-lg hover:bg-green-600 text-sm whitespace-nowrap transition-colors relative"
+                      title="分享链接"
+                    >
+                      {shareSuccess ? '✓ 已复制' : '🔗 分享'}
+                    </button>
+                  </>
+                )}
                 {recentAddresses.length > 0 && (
                   <div className="flex items-center gap-1.5 px-2 py-1 border border-gray-300 rounded-lg bg-white">
                     <span className="text-xs text-gray-500 hidden sm:inline">最近:</span>
@@ -173,10 +249,17 @@ function HomeContent() {
                         <button
                           key={item.address}
                           onClick={() => handleSearch(item.address)}
-                          className="px-2 py-1 text-xs bg-gray-100 hover:bg-gray-200 text-gray-700 rounded transition-colors truncate max-w-[120px] sm:max-w-[150px]"
-                          title={item.address}
+                          className={`px-2 py-1 text-xs rounded transition-colors truncate max-w-[120px] sm:max-w-[150px] ${item.isFavorite
+                            ? 'bg-yellow-100 hover:bg-yellow-200 text-yellow-800'
+                            : 'bg-gray-100 hover:bg-gray-200 text-gray-700'
+                            }`}
+                          title={item.note ? `${item.note}\n${item.address}` : item.address}
                         >
-                          {item.address.slice(0, 6)}...{item.address.slice(-4)}
+                          {item.note ? (
+                            <span className="font-medium">⭐ {item.note}</span>
+                          ) : (
+                            `${item.address.slice(0, 6)}...${item.address.slice(-4)}`
+                          )}
                         </button>
                       ))}
                     </div>
@@ -300,6 +383,67 @@ function HomeContent() {
         {!statistics && !loading && (
           <div className="text-center py-12 text-gray-500">
             <p>请输入钱包地址开始查询</p>
+          </div>
+        )}
+
+        {/* 收藏弹窗 */}
+        {showFavoriteModal && (
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+            <div className="bg-white rounded-lg shadow-xl max-w-md w-full p-6">
+              <h3 className="text-lg font-semibold text-gray-900 mb-4">
+                {isFavorite(walletAddress) ? '编辑收藏备注' : '添加收藏'}
+              </h3>
+              <div className="mb-4">
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  备注名称
+                </label>
+                <input
+                  type="text"
+                  value={favoriteNote}
+                  onChange={(e) => setFavoriteNote(e.target.value)}
+                  placeholder="输入备注名称（如：我的主钱包）"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
+                  autoFocus
+                  onKeyPress={(e) => {
+                    if (e.key === 'Enter') {
+                      handleConfirmFavorite();
+                    } else if (e.key === 'Escape') {
+                      setShowFavoriteModal(false);
+                    }
+                  }}
+                />
+              </div>
+              <div className="flex gap-2 justify-end">
+                <button
+                  onClick={() => {
+                    setShowFavoriteModal(false);
+                    setFavoriteNote('');
+                  }}
+                  className="px-4 py-2 text-sm text-gray-700 bg-gray-200 rounded-lg hover:bg-gray-300 transition-colors"
+                >
+                  取消
+                </button>
+                {isFavorite(walletAddress) && (
+                  <button
+                    onClick={() => {
+                      removeFavorite(walletAddress);
+                      setShowFavoriteModal(false);
+                      setFavoriteNote('');
+                      setRecentAddresses(getRecentAddresses());
+                    }}
+                    className="px-4 py-2 text-sm text-red-700 bg-red-100 rounded-lg hover:bg-red-200 transition-colors"
+                  >
+                    取消收藏
+                  </button>
+                )}
+                <button
+                  onClick={handleConfirmFavorite}
+                  className="px-4 py-2 text-sm text-white bg-blue-600 rounded-lg hover:bg-blue-700 transition-colors"
+                >
+                  确认
+                </button>
+              </div>
+            </div>
           </div>
         )}
       </div>
