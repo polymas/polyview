@@ -119,14 +119,14 @@ export const PnLTable: React.FC<PnLTableProps> = ({ propositions }) => {
 
   const formatCurrency = (value: number) => {
     if (Math.abs(value) >= 1000) {
-      return `$${(value / 1000).toFixed(1)}k`;
+      return `$${(value / 1000).toFixed(2)}k`;
     }
-    return `$${value.toFixed(0)}`;
+    return `$${value.toFixed(2)}`;
   };
 
   const formatPercent = (value: number) => {
     const sign = value >= 0 ? '+' : '';
-    return `${sign}${value.toFixed(1)}%`;
+    return `${sign}${value.toFixed(2)}%`;
   };
 
   const getPnLClass = (pnl: number) => {
