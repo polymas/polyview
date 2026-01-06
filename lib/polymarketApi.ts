@@ -65,7 +65,26 @@ export async function fetchUserActivityFromAPI(
   for (let attempt = 0; attempt < maxRetries; attempt++) {
     try {
       const response = await session.get(`${BASE_URL}/v1/activity`, { params });
-      return response.data;
+      let data = response.data;
+
+      // 在内部直接排除 conditionId
+      const conditionIdsEnv = process.env.FILTER_CONDITION_IDS;
+      if (conditionIdsEnv) {
+        const excludeConditionIds = conditionIdsEnv
+          .split(',')
+          .map(id => id.trim().toLowerCase())
+          .filter(id => id.length > 0);
+
+        if (excludeConditionIds.length > 0) {
+          data = data.filter((item: any) => {
+            const itemConditionId = item.conditionId;
+            if (!itemConditionId) return true; // 保留没有 conditionId 的记录
+            return !excludeConditionIds.includes(String(itemConditionId).toLowerCase());
+          });
+        }
+      }
+
+      return data;
     } catch (error: any) {
       lastError = error;
       if (attempt < maxRetries - 1) {
@@ -108,6 +127,69 @@ export function deduplicateByKey(data: any[]): any[] {
   return unique;
 }
 
+/**
+ * 根据 conditionId 列表排除活动数据（排除模式）
+ * 支持多个 conditionId，如果匹配任何一个则排除
+ */
+export function filterByConditionIds(data: any[], conditionIds?: string[] | null): any[] {
+  if (!conditionIds || conditionIds.length === 0) {
+    return data;
+  }
+
+  // 标准化 conditionId 列表（转为小写）
+  const normalizedConditionIds = conditionIds
+    .map(id => id.trim().toLowerCase())
+    .filter(id => id.length > 0);
+
+  if (normalizedConditionIds.length === 0) {
+    return data;
+  }
+
+  const filtered: any[] = [];
+
+  for (const item of data) {
+    const itemConditionId = item.conditionId;
+    if (!itemConditionId) {
+      // 如果没有 conditionId，保留该项
+      filtered.push(item);
+      continue;
+    }
+
+    // 检查是否匹配任何一个 conditionId，如果匹配则排除
+    const normalizedItemConditionId = String(itemConditionId).toLowerCase();
+    if (!normalizedConditionIds.includes(normalizedItemConditionId)) {
+      // 不匹配列表中的任何 conditionId，保留该项
+      filtered.push(item);
+    }
+    // 如果匹配，则排除（不添加到 filtered 中）
+  }
+
+  return filtered;
+}
+
+// 辅助函数：从环境变量读取并过滤 conditionId
+function filterByConditionIdsFromEnv(data: any[]): any[] {
+  const conditionIdsEnv = process.env.FILTER_CONDITION_IDS;
+  if (!conditionIdsEnv) {
+    return data;
+  }
+
+  const excludeConditionIds = conditionIdsEnv
+    .split(',')
+    .map(id => id.trim().toLowerCase())
+    .filter(id => id.length > 0);
+
+  if (excludeConditionIds.length === 0) {
+    return data;
+  }
+
+  return data.filter((item: any) => {
+    const itemConditionId = item.conditionId;
+    if (!itemConditionId) return true; // 保留没有 conditionId 的记录
+    return !excludeConditionIds.includes(String(itemConditionId).toLowerCase());
+  });
+}
+
 export async function getUserActivity(
   user: string,
   cacheManager: any,
@@ -138,12 +220,15 @@ export async function getUserActivity(
       cacheManager.saveActivities(user, latestData);
     }
 
-    return cacheManager.getCachedActivities(user, limit, offset, sortBy, sortDirection);
+    const cachedData = cacheManager.getCachedActivities(user, limit, offset, sortBy, sortDirection);
+    // 对从缓存读取的数据也应用过滤
+    return filterByConditionIdsFromEnv(cachedData);
   } catch (error: any) {
     try {
       const cachedData = cacheManager.getCachedActivities(user, limit, offset, sortBy, sortDirection);
       if (cachedData && cachedData.length > 0) {
-        return cachedData;
+        // 对从缓存读取的数据也应用过滤
+        return filterByConditionIdsFromEnv(cachedData);
       }
     } catch (e) {
       // 忽略缓存错误
@@ -168,7 +253,7 @@ export async function getAllUserActivity(
 
   // 获取缓存数据
   const cachedData = useCache
-    ? cacheManager.getAllCachedActivities(user, sortBy, sortDirection)
+    ? filterByConditionIdsFromEnv(cacheManager.getAllCachedActivities(user, sortBy, sortDirection))
     : [];
 
   const allActivities: any[] = [];
@@ -326,9 +411,11 @@ export async function getAllUserActivity(
       mergedData.splice(maxRecords);
     }
 
-    return mergedData;
+    // 对合并后的数据也应用过滤（确保缓存数据被过滤）
+    return filterByConditionIdsFromEnv(mergedData);
   }
 
-  return allActivities;
+  // 对最终结果也应用过滤
+  return filterByConditionIdsFromEnv(allActivities);
 }
 

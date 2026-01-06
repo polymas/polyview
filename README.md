@@ -78,6 +78,7 @@ vercel
 如果需要自定义配置，可以在 Vercel 项目设置中添加环境变量：
 
 - `DB_FILE`: 数据库文件路径（默认：`/tmp/polymarket_cache.db`，Vercel 使用临时存储）
+- `FILTER_CONDITION_IDS`: 用于排除活动数据的 conditionId 列表（可选，如果设置则排除匹配这些 conditionId 的活动记录）。支持多个 conditionId，使用逗号分隔，例如：`0x123...,0x456...,0x789...`
 
 **注意**: Vercel 的 `/tmp` 目录是临时存储，重启后会丢失。如需持久化，建议使用：
 - Vercel KV (Redis)
