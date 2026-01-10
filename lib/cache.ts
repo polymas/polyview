@@ -126,6 +126,44 @@ export class CacheManager {
     return this.getCachedActivities(user, null, 0, sortBy, sortDirection);
   }
 
+  /**
+   * 按天数获取缓存数据（最近N天的数据）
+   * @param user 用户地址
+   * @param days 天数，默认30天
+   * @param sortBy 排序字段
+   * @param sortDirection 排序方向
+   * @returns 最近N天的活动数据
+   */
+  getCachedActivitiesByDays(
+    user: string,
+    days: number = 30,
+    sortBy: string = 'TIMESTAMP',
+    sortDirection: string = 'DESC'
+  ): any[] {
+    const cutoffTimestamp = Math.floor((Date.now() / 1000) - days * 24 * 60 * 60);
+    const orderBy = `timestamp ${sortDirection}`;
+    
+    const query = `
+      SELECT activity_data 
+      FROM user_activities 
+      WHERE user_address = ? AND timestamp >= ?
+      ORDER BY ${orderBy}
+    `;
+
+    const results = this.db.prepare(query).all(user.toLowerCase(), cutoffTimestamp) as Array<{ activity_data: string }>;
+    
+    const activities: any[] = [];
+    for (const row of results) {
+      try {
+        activities.push(JSON.parse(row.activity_data));
+      } catch (e) {
+        // 忽略解析错误
+      }
+    }
+
+    return activities;
+  }
+
   clearUserCache(user: string): void {
     this.db.prepare('DELETE FROM user_activities WHERE user_address = ?').run(user.toLowerCase());
   }
@@ -179,6 +217,61 @@ export class CacheManager {
     if (Math.random() < 0.01) {
       this.cleanOldData(180);
     }
+  }
+
+  /**
+   * 检查缓存是否足够新（在指定时间内）
+   * @param user 用户地址
+   * @param maxAgeSeconds 缓存最大年龄（秒），默认5分钟（300秒）
+   * @returns 如果缓存足够新返回true，否则返回false
+   */
+  isCacheFresh(user: string, maxAgeSeconds: number = 300): boolean {
+    const stats = this.getCacheStats(user.toLowerCase());
+    if (!stats || !stats.last_updated) {
+      return false;
+    }
+
+    const lastUpdated = new Date(stats.last_updated).getTime();
+    const now = Date.now();
+    const ageSeconds = Math.floor((now - lastUpdated) / 1000);
+    
+    return ageSeconds < maxAgeSeconds;
+  }
+
+  /**
+   * 快速检查缓存是否有数据（只查询数量，不读取数据）
+   * @param user 用户地址
+   * @returns 缓存中的记录数量
+   */
+  hasCachedData(user: string): number {
+    const stats = this.getCacheStats(user.toLowerCase());
+    return stats?.total_count || 0;
+  }
+
+  /**
+   * 检查缓存是否足够新且有数据
+   * @param user 用户地址
+   * @param maxAgeSeconds 缓存最大年龄（秒），默认5分钟（300秒）
+   * @returns 如果缓存足够新且有数据返回true，否则返回false
+   */
+  isCacheFreshAndHasData(user: string, maxAgeSeconds: number = 300): boolean {
+    if (!this.isCacheFresh(user, maxAgeSeconds)) {
+      return false;
+    }
+    return this.hasCachedData(user) > 0;
+  }
+
+  /**
+   * 获取缓存的最后更新时间
+   * @param user 用户地址
+   * @returns 最后更新时间戳（毫秒），如果没有缓存返回null
+   */
+  getCacheLastUpdated(user: string): number | null {
+    const stats = this.getCacheStats(user.toLowerCase());
+    if (!stats || !stats.last_updated) {
+      return null;
+    }
+    return new Date(stats.last_updated).getTime();
   }
 }
 

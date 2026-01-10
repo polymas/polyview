@@ -14,6 +14,7 @@ export async function GET(request: NextRequest) {
     const sortDirection = searchParams.get('sort_direction') || 'DESC';
     const useCacheParam = searchParams.get('use_cache');
     const excludeDepositsWithdrawalsParam = searchParams.get('excludeDepositsWithdrawals');
+    const daysParam = searchParams.get('days'); // 新增：按天数限制
 
     if (!user) {
       return NextResponse.json(
@@ -33,12 +34,13 @@ export async function GET(request: NextRequest) {
     const offset = offsetParam ? parseInt(offsetParam, 10) : 0;
     const useCache = useCacheParam !== 'false';
     const excludeDepositsWithdrawals = excludeDepositsWithdrawalsParam !== 'false';
+    const days = daysParam ? parseInt(daysParam, 10) : null; // 如果指定了days，则按天数限制
 
     let data: any[];
     let message: string;
 
     if (limit === 0 || limit === -1) {
-      // 获取所有记录
+      // 获取所有记录（如果指定了days，则只获取最近N天的数据）
       data = await getAllUserActivity(
         user,
         cacheManager,
@@ -47,9 +49,12 @@ export async function GET(request: NextRequest) {
         BATCH_SIZE_DEFAULT,
         null,
         useCache,
-        excludeDepositsWithdrawals
+        excludeDepositsWithdrawals,
+        days // 传递days参数
       );
-      message = `成功获取所有 ${data.length} 条历史活动记录`;
+      message = days 
+        ? `成功获取最近 ${days} 天 ${data.length} 条历史活动记录`
+        : `成功获取所有 ${data.length} 条历史活动记录`;
     } else {
       if (limit < 1) {
         return NextResponse.json(
@@ -78,13 +83,25 @@ export async function GET(request: NextRequest) {
       message,
     });
   } catch (error: any) {
+    // 检查是否是超时错误
+    const isTimeoutError = 
+      error.code === 'ECONNABORTED' || 
+      error.message?.includes('timeout') || 
+      error.message?.includes('超时') ||
+      error.message?.includes('timed out');
+    
+    const errorMessage = isTimeoutError
+      ? '获取用户活动数据超时，数据量可能较大。请稍后重试，或尝试使用缓存数据。'
+      : '获取用户活动失败';
+    
     return NextResponse.json(
       {
         success: false,
-        error: '获取用户活动失败',
+        error: errorMessage,
         detail: error.message || String(error),
+        isTimeout: isTimeoutError,
       },
-      { status: 500 }
+      { status: isTimeoutError ? 504 : 500 } // 超时错误返回504状态码
     );
   }
 }

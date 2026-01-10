@@ -6,18 +6,27 @@ const API_BASE_URL = '/api';
 
 /**
  * 从本地 API 获取用户活动数据
+ * @param walletAddress 钱包地址
+ * @param days 获取最近N天的数据，如果不指定则获取所有数据
  */
-async function getActivitiesFromLocalAPI(walletAddress: string): Promise<any[]> {
+async function getActivitiesFromLocalAPI(walletAddress: string, days?: number): Promise<any[]> {
   try {
+    const params: any = {
+      user: walletAddress,
+      limit: -1,  // 获取所有历史记录
+      sort_by: 'TIMESTAMP',
+      sort_direction: 'DESC',
+      use_cache: true
+    };
+    
+    // 如果指定了days，添加days参数
+    if (days) {
+      params.days = days;
+    }
+    
     const response = await axios.get(`${API_BASE_URL}/activity`, {
-      params: {
-        user: walletAddress,
-        limit: -1,  // 获取所有历史记录
-        sort_by: 'TIMESTAMP',
-        sort_direction: 'DESC',
-        use_cache: true
-      },
-      timeout: 60000,  // 60秒超时，因为可能需要获取大量数据
+      params,
+      timeout: 300000,  // 300秒（5分钟）超时，因为可能需要获取大量数据并合并
     });
 
     if (response.data && response.data.success && response.data.data) {
@@ -89,9 +98,12 @@ function transformActivityToTransaction(activity: any): PolymarketTransaction {
 
 /**
  * 获取指定钱包地址的交易记录
+ * @param walletAddress 钱包地址
+ * @param days 获取最近N天的数据，如果不指定则默认30天（懒加载优化）
  */
 export async function getWalletTransactions(
-  walletAddress: string
+  walletAddress: string,
+  days: number = 30 // 默认只加载30天数据
 ): Promise<PolymarketTransaction[]> {
   if (!walletAddress || !walletAddress.startsWith('0x')) {
     throw new Error('无效的钱包地址，必须以 0x 开头');
@@ -100,7 +112,7 @@ export async function getWalletTransactions(
   const normalizedAddress = walletAddress.toLowerCase();
 
   try {
-    const activities = await getActivitiesFromLocalAPI(normalizedAddress);
+    const activities = await getActivitiesFromLocalAPI(normalizedAddress, days);
 
     if (!activities || activities.length === 0) {
       throw new Error('本地 API 返回空数据');

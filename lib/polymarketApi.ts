@@ -8,7 +8,7 @@ const SIX_MONTHS_DAYS = 180; // 6个月
 
 function createSession(): AxiosInstance {
   const instance = axios.create({
-    timeout: 30000,
+    timeout: 60000, // 增加到60秒，因为可能需要获取大量数据
     headers: {
       'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36',
       'Accept': 'application/json',
@@ -204,6 +204,27 @@ export async function getUserActivity(
     return fetchUserActivityFromAPI(user, limit, offset, sortBy, sortDirection, excludeDepositsWithdrawals);
   }
 
+  // 优先检查缓存是否足够新且有数据（5分钟内）
+  const CACHE_MAX_AGE_SECONDS = 300; // 5分钟
+  const isCacheFreshAndHasData = cacheManager.isCacheFreshAndHasData 
+    ? cacheManager.isCacheFreshAndHasData(user, CACHE_MAX_AGE_SECONDS) 
+    : false;
+  
+  // 如果缓存足够新且有数据，直接返回缓存数据，完全跳过API调用
+  if (isCacheFreshAndHasData) {
+    try {
+      const cachedData = cacheManager.getCachedActivities(user, limit, offset, sortBy, sortDirection);
+      if (cachedData && cachedData.length > 0) {
+        // 对从缓存读取的数据也应用过滤
+        return filterByConditionIdsFromEnv(cachedData);
+      }
+    } catch (e) {
+      // 缓存读取失败，继续执行API调用
+      console.warn('缓存读取失败，继续执行API调用:', e);
+    }
+  }
+
+  // 缓存过期或不存在，调用API更新缓存
   const cacheUpdateLimit = Math.max(limit + offset, 100);
 
   try {
@@ -224,14 +245,29 @@ export async function getUserActivity(
     // 对从缓存读取的数据也应用过滤
     return filterByConditionIdsFromEnv(cachedData);
   } catch (error: any) {
+    // 如果是超时错误，尝试返回缓存数据
+    const isTimeoutError = 
+      error.code === 'ECONNABORTED' || 
+      error.message?.includes('timeout') || 
+      error.message?.includes('超时') ||
+      error.message?.includes('timed out');
+    
     try {
       const cachedData = cacheManager.getCachedActivities(user, limit, offset, sortBy, sortDirection);
       if (cachedData && cachedData.length > 0) {
         // 对从缓存读取的数据也应用过滤
+        if (isTimeoutError) {
+          console.warn('API请求超时，返回缓存数据');
+        }
         return filterByConditionIdsFromEnv(cachedData);
       }
     } catch (e) {
       // 忽略缓存错误
+    }
+
+    // 如果是超时错误且没有缓存数据，抛出更友好的错误信息
+    if (isTimeoutError) {
+      throw new Error(`获取用户活动数据超时，请稍后重试或检查网络连接`);
     }
 
     throw error;
@@ -246,14 +282,59 @@ export async function getAllUserActivity(
   batchSize: number = BATCH_SIZE_DEFAULT,
   maxRecords?: number | null,
   useCache: boolean = true,
-  excludeDepositsWithdrawals: boolean = true
+  excludeDepositsWithdrawals: boolean = true,
+  days?: number | null // 新增：按天数限制，如果指定则只获取最近N天的数据
 ): Promise<any[]> {
   const actualBatchSize = Math.min(batchSize, BATCH_SIZE_MAX);
-  const cutoffTimestamp = Math.floor((Date.now() / 1000) - SIX_MONTHS_DAYS * 24 * 60 * 60);
+  // 如果指定了days，使用days；否则使用默认的6个月
+  const daysToFetch = days || SIX_MONTHS_DAYS;
+  const cutoffTimestamp = Math.floor((Date.now() / 1000) - daysToFetch * 24 * 60 * 60);
 
-  // 获取缓存数据
+  // 总体超时控制：最大执行时间5分钟（300秒）
+  const MAX_EXECUTION_TIME_MS = 300000; // 5分钟
+  const startTime = Date.now();
+
+  // 优先检查缓存是否足够新且有数据（5分钟内）- 先检查，避免不必要的缓存读取
+  const CACHE_MAX_AGE_SECONDS = 300; // 5分钟
+  const isCacheFreshAndHasData = useCache && cacheManager.isCacheFreshAndHasData 
+    ? cacheManager.isCacheFreshAndHasData(user, CACHE_MAX_AGE_SECONDS) 
+    : false;
+  
+  // 如果缓存足够新且有数据，直接读取并返回缓存数据，完全跳过API调用
+  if (isCacheFreshAndHasData && useCache) {
+    try {
+      // 如果指定了days，使用按天数读取的方法（更快）
+      const cachedData = days && cacheManager.getCachedActivitiesByDays
+        ? filterByConditionIdsFromEnv(
+            cacheManager.getCachedActivitiesByDays(user, days, sortBy, sortDirection)
+          )
+        : filterByConditionIdsFromEnv(
+            cacheManager.getAllCachedActivities(user, sortBy, sortDirection)
+          );
+      
+      if (cachedData && cachedData.length > 0) {
+        if (maxRecords) {
+          return cachedData.slice(0, maxRecords);
+        }
+        return cachedData;
+      }
+    } catch (e) {
+      // 缓存读取失败，继续执行API调用
+      console.warn('缓存读取失败，继续执行API调用:', e);
+    }
+  }
+
+  // 缓存过期或不存在，需要调用API
+  // 先尝试读取已有缓存（如果有），用于后续合并
+  // 如果指定了days，只读取最近N天的缓存（更快）
   const cachedData = useCache
-    ? filterByConditionIdsFromEnv(cacheManager.getAllCachedActivities(user, sortBy, sortDirection))
+    ? (days && cacheManager.getCachedActivitiesByDays
+        ? filterByConditionIdsFromEnv(
+            cacheManager.getCachedActivitiesByDays(user, days, sortBy, sortDirection)
+          )
+        : filterByConditionIdsFromEnv(
+            cacheManager.getAllCachedActivities(user, sortBy, sortDirection)
+          ))
     : [];
 
   const allActivities: any[] = [];
@@ -272,9 +353,9 @@ export async function getAllUserActivity(
       );
 
       if (firstBatch && firstBatch.length > 0) {
-        const filteredBatch = filterRecentData(firstBatch, SIX_MONTHS_DAYS);
+        const filteredBatch = filterRecentData(firstBatch, daysToFetch);
         if (filteredBatch.length > 0) {
-          const cachedRecent = filterRecentData(cachedData, SIX_MONTHS_DAYS);
+          const cachedRecent = filterRecentData(cachedData, daysToFetch);
           const cachedKeys = new Set(
             cachedRecent.map((item) => `${item.transactionHash || ''}_${item.conditionId || ''}`)
           );
@@ -301,6 +382,24 @@ export async function getAllUserActivity(
   let lastBatchMinTimestamp: number | null = null;
 
   while (true) {
+    // 检查总体执行时间是否超时
+    const elapsedTime = Date.now() - startTime;
+    if (elapsedTime > MAX_EXECUTION_TIME_MS) {
+      console.warn(`获取用户活动数据超时（已执行 ${Math.floor(elapsedTime / 1000)} 秒），返回已获取的数据`);
+      // 如果已经有数据，返回已获取的数据；否则返回缓存数据
+      if (allActivities.length > 0) {
+        break; // 跳出循环，返回已获取的数据
+      } else if (cachedData && cachedData.length > 0) {
+        // 返回缓存数据
+        if (maxRecords) {
+          return cachedData.slice(0, maxRecords);
+        }
+        return cachedData;
+      } else {
+        throw new Error(`获取用户活动数据超时（已执行 ${Math.floor(elapsedTime / 1000)} 秒），请稍后重试或使用缓存`);
+      }
+    }
+
     try {
       const batch = await fetchUserActivityFromAPI(
         user,
@@ -315,7 +414,7 @@ export async function getAllUserActivity(
         break;
       }
 
-      const filteredBatch = filterRecentData(batch, SIX_MONTHS_DAYS);
+      const filteredBatch = filterRecentData(batch, daysToFetch);
 
       // 如果过滤后的批次为空，检查是否所有数据都超过6个月
       // 如果是，说明已经获取完所有6个月内的数据，可以停止
@@ -381,15 +480,28 @@ export async function getAllUserActivity(
 
       // 添加延迟避免请求过快
       await new Promise((resolve) => setTimeout(resolve, 500));
-    } catch (error) {
+    } catch (error: any) {
+      // 如果是超时错误，尝试返回已获取的数据或缓存数据
+      if (error.code === 'ECONNABORTED' || error.message?.includes('timeout') || error.message?.includes('超时')) {
+        console.warn('API请求超时，尝试返回已获取的数据或缓存数据');
+        if (allActivities.length > 0) {
+          break; // 跳出循环，返回已获取的数据
+        } else if (cachedData && cachedData.length > 0) {
+          // 返回缓存数据
+          if (maxRecords) {
+            return cachedData.slice(0, maxRecords);
+          }
+          return cachedData;
+        }
+      }
       throw error;
     }
   }
 
-  // 合并缓存和API数据
-  if (cachedData && cachedData.length > 0) {
-    const mergedData = deduplicateByKey(allActivities);
-    const cachedRecent = filterRecentData(cachedData, SIX_MONTHS_DAYS);
+    // 合并缓存和API数据
+    if (cachedData && cachedData.length > 0) {
+      const mergedData = deduplicateByKey(allActivities);
+      const cachedRecent = filterRecentData(cachedData, daysToFetch);
     const cachedKeys = new Set(
       mergedData.map((item) => `${item.transactionHash || ''}_${item.conditionId || ''}`)
     );

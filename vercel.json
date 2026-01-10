@@ -5,5 +5,10 @@
     "framework": "nextjs",
     "regions": [
         "hkg1"
-    ]
+    ],
+    "functions": {
+        "app/api/**/*.ts": {
+            "maxDuration": 300
+        }
+    }
 }
