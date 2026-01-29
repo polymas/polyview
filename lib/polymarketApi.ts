@@ -206,10 +206,10 @@ export async function getUserActivity(
 
   // 优先检查缓存是否足够新且有数据（5分钟内）
   const CACHE_MAX_AGE_SECONDS = 300; // 5分钟
-  const isCacheFreshAndHasData = cacheManager.isCacheFreshAndHasData 
-    ? cacheManager.isCacheFreshAndHasData(user, CACHE_MAX_AGE_SECONDS) 
+  const isCacheFreshAndHasData = cacheManager.isCacheFreshAndHasData
+    ? cacheManager.isCacheFreshAndHasData(user, CACHE_MAX_AGE_SECONDS)
     : false;
-  
+
   // 如果缓存足够新且有数据，直接返回缓存数据，完全跳过API调用
   if (isCacheFreshAndHasData) {
     try {
@@ -246,12 +246,12 @@ export async function getUserActivity(
     return filterByConditionIdsFromEnv(cachedData);
   } catch (error: any) {
     // 如果是超时错误，尝试返回缓存数据
-    const isTimeoutError = 
-      error.code === 'ECONNABORTED' || 
-      error.message?.includes('timeout') || 
+    const isTimeoutError =
+      error.code === 'ECONNABORTED' ||
+      error.message?.includes('timeout') ||
       error.message?.includes('超时') ||
       error.message?.includes('timed out');
-    
+
     try {
       const cachedData = cacheManager.getCachedActivities(user, limit, offset, sortBy, sortDirection);
       if (cachedData && cachedData.length > 0) {
@@ -296,22 +296,22 @@ export async function getAllUserActivity(
 
   // 优先检查缓存是否足够新且有数据（5分钟内）- 先检查，避免不必要的缓存读取
   const CACHE_MAX_AGE_SECONDS = 300; // 5分钟
-  const isCacheFreshAndHasData = useCache && cacheManager.isCacheFreshAndHasData 
-    ? cacheManager.isCacheFreshAndHasData(user, CACHE_MAX_AGE_SECONDS) 
+  const isCacheFreshAndHasData = useCache && cacheManager.isCacheFreshAndHasData
+    ? cacheManager.isCacheFreshAndHasData(user, CACHE_MAX_AGE_SECONDS)
     : false;
-  
+
   // 如果缓存足够新且有数据，直接读取并返回缓存数据，完全跳过API调用
   if (isCacheFreshAndHasData && useCache) {
     try {
       // 如果指定了days，使用按天数读取的方法（更快）
       const cachedData = days && cacheManager.getCachedActivitiesByDays
         ? filterByConditionIdsFromEnv(
-            cacheManager.getCachedActivitiesByDays(user, days, sortBy, sortDirection)
-          )
+          cacheManager.getCachedActivitiesByDays(user, days, sortBy, sortDirection)
+        )
         : filterByConditionIdsFromEnv(
-            cacheManager.getAllCachedActivities(user, sortBy, sortDirection)
-          );
-      
+          cacheManager.getAllCachedActivities(user, sortBy, sortDirection)
+        );
+
       if (cachedData && cachedData.length > 0) {
         if (maxRecords) {
           return cachedData.slice(0, maxRecords);
@@ -329,12 +329,12 @@ export async function getAllUserActivity(
   // 如果指定了days，只读取最近N天的缓存（更快）
   const cachedData = useCache
     ? (days && cacheManager.getCachedActivitiesByDays
-        ? filterByConditionIdsFromEnv(
-            cacheManager.getCachedActivitiesByDays(user, days, sortBy, sortDirection)
-          )
-        : filterByConditionIdsFromEnv(
-            cacheManager.getAllCachedActivities(user, sortBy, sortDirection)
-          ))
+      ? filterByConditionIdsFromEnv(
+        cacheManager.getCachedActivitiesByDays(user, days, sortBy, sortDirection)
+      )
+      : filterByConditionIdsFromEnv(
+        cacheManager.getAllCachedActivities(user, sortBy, sortDirection)
+      ))
     : [];
 
   const allActivities: any[] = [];
@@ -498,10 +498,10 @@ export async function getAllUserActivity(
     }
   }
 
-    // 合并缓存和API数据
-    if (cachedData && cachedData.length > 0) {
-      const mergedData = deduplicateByKey(allActivities);
-      const cachedRecent = filterRecentData(cachedData, daysToFetch);
+  // 合并缓存和API数据
+  if (cachedData && cachedData.length > 0) {
+    const mergedData = deduplicateByKey(allActivities);
+    const cachedRecent = filterRecentData(cachedData, daysToFetch);
     const cachedKeys = new Set(
       mergedData.map((item) => `${item.transactionHash || ''}_${item.conditionId || ''}`)
     );
