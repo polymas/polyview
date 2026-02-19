@@ -3,10 +3,14 @@
     "version": "1.0.0",
     "type": "module",
     "scripts": {
-        "dev": "next dev -p 3010",
+        "dev": "next dev -p 3010 --webpack",
         "build": "next build",
         "start": "next start -p 3010",
-        "lint": "next lint"
+        "lint": "next lint",
+        "fetch-trades": "node scripts/fetch-address-trades.mjs",
+        "fetch-trades:api": "node scripts/fetch-address-trades.mjs --api",
+    "merge-pnl": "node scripts/merge-trades-to-pnl.mjs",
+        "dump-activity": "node scripts/dump-polymarket-activity.mjs"
     },
     "dependencies": {
         "@ant-design/icons": "^6.1.0",
@@ -17,6 +21,7 @@
         "better-sqlite3": "^12.5.0",
         "date-fns": "^2.30.0",
         "dayjs": "^1.11.19",
+        "https-proxy-agent": "^7.0.6",
         "next": "^16.1.1",
         "react": "^19.2.3",
         "react-dom": "^19.2.3",

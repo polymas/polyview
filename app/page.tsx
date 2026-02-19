@@ -58,7 +58,7 @@ function HomeContent() {
     }
   }, [addressFromUrl]);
 
-  const handleSearch = useCallback(async (address?: string) => {
+  const handleSearch = useCallback(async (address?: string, forceRefresh = false) => {
     const targetAddress = address || walletAddress;
 
     if (!targetAddress.trim()) {
@@ -71,12 +71,7 @@ function HomeContent() {
       return;
     }
 
-    // 如果传入了地址，更新状态
-    if (address) {
-      setWalletAddress(address);
-    }
-
-    // 更新URL参数
+    if (address) setWalletAddress(address);
     updateUrlAddress(targetAddress);
 
     setLoading(true);
@@ -87,7 +82,7 @@ function HomeContent() {
     setHoldingDurations([]);
 
     try {
-      const txData = await getWalletTransactions(targetAddress);
+      const txData = await getWalletTransactions(targetAddress, 30, forceRefresh);
 
       if (txData.length === 0) {
         alert('该钱包地址在 Polymarket 上没有找到交易记录');
@@ -219,6 +214,14 @@ function HomeContent() {
                   className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed text-sm whitespace-nowrap"
                 >
                   {loading ? '加载中...' : '查询'}
+                </button>
+                <button
+                  onClick={() => handleSearch(undefined, true)}
+                  disabled={loading}
+                  className="px-3 py-2 border border-amber-500 text-amber-700 rounded-lg hover:bg-amber-50 disabled:opacity-50 text-sm whitespace-nowrap"
+                  title="忽略缓存重新拉取，可修复「开仓未平」误判"
+                >
+                  强制刷新
                 </button>
                 {statistics && (
                   <>

@@ -22,8 +22,10 @@ function formatDateUTC8(timestamp: number): string {
 export function calculatePropositionPnL(
   transactions: PolymarketTransaction[]
 ): PropositionPnL[] {
-  // 过滤掉 size=0 的交易
-  const validTransactions = transactions.filter(tx => tx.amount > 0);
+  // 保留 amount>0 的；SELL（含 REDEEM）即使 amount=0 也保留，在 FIFO 中按「平掉当前全部持仓」处理，避免漏平仓
+  const validTransactions = transactions.filter(
+    tx => tx.amount > 0 || tx.type === 'SELL'
+  );
 
   // 按 conditionId (market) 分组，同一个 conditionId 的所有交易一起计算
   const conditionGroups = new Map<string, PolymarketTransaction[]>();
@@ -73,9 +75,13 @@ export function calculatePropositionPnL(
         });
       } else if (tx.type === 'SELL') {
         // 卖出（包括 REDEEM）：使用 FIFO 匹配买入
-        // 如果没有持仓，说明是卖空或只有REDEEM没有开仓，不计入盈利
+        // 若 API 返回 REDEEM 的 amount=0，视为平掉当前全部持仓；price=0 时按 1 算（Claim 通常 1:1）
         if (positions.length > 0) {
+          const effectivePrice = tx.price != null && tx.price > 0 ? tx.price : 1;
           let remainingAmount = tx.amount;
+          if (remainingAmount <= 0) {
+            remainingAmount = positions.reduce((s, p) => s + p.amount, 0);
+          }
           let sellRealizedPnL = 0;
 
           while (remainingAmount > 0 && positions.length > 0) {
@@ -84,7 +90,7 @@ export function calculatePropositionPnL(
 
             if (position.amount <= remainingAmount) {
               // 完全平掉这个持仓
-              const sellValue = position.amount * tx.price;
+              const sellValue = position.amount * effectivePrice;
               const profit = sellValue - position.cost;
               sellRealizedPnL += profit;
               totalReturned += sellValue;
@@ -94,7 +100,7 @@ export function calculatePropositionPnL(
             } else {
               // 部分平仓
               const sellAmount = remainingAmount;
-              const sellValue = sellAmount * tx.price;
+              const sellValue = sellAmount * effectivePrice;
               const cost = sellAmount * avgCost;
               const profit = sellValue - cost;
               sellRealizedPnL += profit;
@@ -108,7 +114,7 @@ export function calculatePropositionPnL(
 
           // 如果还有剩余卖出量，说明是卖空（简化处理）
           if (remainingAmount > 0) {
-            const sellValue = remainingAmount * tx.price;
+            const sellValue = remainingAmount * effectivePrice;
             totalReturned += sellValue;
             currentShares -= remainingAmount;
             // 卖空收益（简化处理，不计算成本）

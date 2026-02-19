@@ -2,9 +2,15 @@ import axios, { AxiosInstance } from 'axios';
 
 const BASE_URL = 'https://data-api.polymarket.com';
 
-const BATCH_SIZE_DEFAULT = 100;
-const BATCH_SIZE_MAX = 100;
+const BATCH_SIZE_DEFAULT = 500;
+const BATCH_SIZE_MAX = 500; // 官方文档 limit 最大 500
+const API_REQUEST_LIMIT_MAX = 500; // 单次请求上限，与官方 limit 最大 500 一致；若某环境 4xx 可改回 100
+const ACTIVITY_PATHS = ['/activity', '/v1/activity'] as const; // 先试文档路径，再回退 v1
+const MAX_ACTIVITY_OFFSET = 3000; // Polymarket API：offset 超过 3000 会返回 400
+const ACTIVITY_WINDOW_DAYS = 7; // 按时间窗口拉取；7 天 + limit=500 时单窗通常一页拉完，30 天约 5 窗 ≈ 5–10 次请求
 const SIX_MONTHS_DAYS = 180; // 6个月
+
+let _polyRequestIndex = 0;
 
 function createSession(): AxiosInstance {
   const instance = axios.create({
@@ -25,8 +31,12 @@ function createSession(): AxiosInstance {
       }
       config.retry += 1;
 
-      if (config.retry <= 3 && (error.response?.status >= 500 || error.code === 'ECONNRESET')) {
-        await new Promise((resolve) => setTimeout(resolve, 1000 * config.retry));
+      const status = error.response?.status;
+      const isRetryable = status >= 500 || error.code === 'ECONNRESET';
+      const maxRetries = status === 502 || status === 503 ? 5 : 3;
+      if (config.retry <= maxRetries && isRetryable) {
+        const delay = (status === 502 || status === 503 ? 2000 : 1000) * config.retry;
+        await new Promise((resolve) => setTimeout(resolve, delay));
         return instance(config);
       }
 
@@ -47,61 +57,99 @@ export async function fetchUserActivityFromAPI(
   offset: number = 0,
   sortBy: string = 'TIMESTAMP',
   sortDirection: string = 'DESC',
-  excludeDepositsWithdrawals: boolean = true
+  excludeDepositsWithdrawals: boolean = true,
+  start?: number,
+  end?: number
 ): Promise<any[]> {
-  const params = {
+  const requestLimit = Math.min(Math.max(1, limit), API_REQUEST_LIMIT_MAX);
+  const params: Record<string, string | number> = {
     user,
-    limit,
+    limit: requestLimit,
     offset,
     sortBy,
     sortDirection,
     excludeDepositsWithdrawals: String(excludeDepositsWithdrawals).toLowerCase(),
   };
+  if (start != null && start >= 0) params.start = start;
+  if (end != null && end >= 0) params.end = end;
 
   const session = createSession();
-  const maxRetries = 3;
   let lastError: any;
 
-  for (let attempt = 0; attempt < maxRetries; attempt++) {
-    try {
-      const response = await session.get(`${BASE_URL}/v1/activity`, { params });
-      let data = response.data;
+  for (const activityPath of ACTIVITY_PATHS) {
+    for (let attempt = 0; attempt < 3; attempt++) {
+      try {
+        _polyRequestIndex += 1;
+        const url = `${BASE_URL}${activityPath}`;
+        const query = new URLSearchParams(
+          Object.fromEntries(Object.entries(params).map(([k, v]) => [k, String(v)]))
+        ).toString();
+        const fullUrl = query ? `${url}?${query}` : url;
+        console.log(`[Polymarket #${_polyRequestIndex}]`, fullUrl);
+        const response = await session.get(`${BASE_URL}${activityPath}`, { params });
+        let data = response.data;
+        const count = Array.isArray(data) ? data.length : 0;
+        console.log(`[Polymarket #${_polyRequestIndex}]`, '←', count, '条');
 
-      // 在内部直接排除 conditionId
-      const conditionIdsEnv = process.env.FILTER_CONDITION_IDS;
-      if (conditionIdsEnv) {
-        const excludeConditionIds = conditionIdsEnv
-          .split(',')
-          .map(id => id.trim().toLowerCase())
-          .filter(id => id.length > 0);
-
-        if (excludeConditionIds.length > 0) {
-          data = data.filter((item: any) => {
-            const itemConditionId = item.conditionId;
-            if (!itemConditionId) return true; // 保留没有 conditionId 的记录
-            return !excludeConditionIds.includes(String(itemConditionId).toLowerCase());
-          });
+        if (!Array.isArray(data)) {
+          const msg = typeof data?.error === 'string' ? data.error : '接口返回非列表';
+          throw new Error(msg || 'Invalid response');
         }
-      }
 
-      return data;
-    } catch (error: any) {
-      lastError = error;
-      if (attempt < maxRetries - 1) {
-        await new Promise((resolve) => setTimeout(resolve, 2000 * (attempt + 1)));
+        const conditionIdsEnv = process.env.FILTER_CONDITION_IDS;
+        if (conditionIdsEnv) {
+          const excludeConditionIds = conditionIdsEnv
+            .split(',')
+            .map(id => id.trim().toLowerCase())
+            .filter(id => id.length > 0);
+          if (excludeConditionIds.length > 0) {
+            data = data.filter((item: any) => {
+              const itemConditionId = item.conditionId;
+              if (!itemConditionId) return true;
+              return !excludeConditionIds.includes(String(itemConditionId).toLowerCase());
+            });
+          }
+        }
+
+        return data;
+      } catch (error: any) {
+        lastError = error;
+        const status = error.response?.status;
+        if (status === 404 && activityPath === '/activity') {
+          break; // 换下一个路径
+        }
+        if (attempt < 2 && (status >= 500 || error.code === 'ECONNRESET')) {
+          await new Promise((r) => setTimeout(r, 1000 * (attempt + 1)));
+          continue;
+        }
+        if (activityPath === ACTIVITY_PATHS[ACTIVITY_PATHS.length - 1]) {
+          const status = lastError?.response?.status;
+          const body = lastError?.response?.data;
+          const detail = status ? ` [${status}] ${typeof body?.error === 'string' ? body.error : ''}` : '';
+          if (status === 502 || status === 503) {
+            throw new Error(`Polymarket 服务暂时不可用(${status})，请稍后重试。${detail}`.trim());
+          }
+          throw new Error(`Polymarket API 请求失败: ${lastError?.message || '未知错误'}${detail}`.trim());
+        }
+        break;
       }
     }
   }
 
-  throw new Error(`Polymarket API 请求失败: ${lastError?.message || '未知错误'}`);
+  const status = lastError?.response?.status;
+  const body = lastError?.response?.data;
+  const detail = status ? ` [${status}] ${typeof body?.error === 'string' ? body.error : ''}` : '';
+  if (status === 502 || status === 503) {
+    throw new Error(`Polymarket 服务暂时不可用(${status})，请稍后重试。${detail}`.trim());
+  }
+  throw new Error(`Polymarket API 请求失败: ${lastError?.message || '未知错误'}${detail}`.trim());
 }
 
 export function filterRecentData(data: any[], days: number = SIX_MONTHS_DAYS): any[] {
+  if (!Array.isArray(data)) return [];
   const cutoffTimestamp = Math.floor((Date.now() / 1000) - days * 24 * 60 * 60);
   const filtered: any[] = [];
 
-  // 遍历所有数据，不过滤掉任何在6个月内的数据
-  // 注意：不再使用 break，因为同一批次可能包含不同月份的数据
   for (const item of data) {
     const timestamp = normalizeTimestamp(item.timestamp || 0);
     if (timestamp >= cutoffTimestamp) {
@@ -113,6 +161,7 @@ export function filterRecentData(data: any[], days: number = SIX_MONTHS_DAYS): a
 }
 
 export function deduplicateByKey(data: any[]): any[] {
+  if (!Array.isArray(data)) return [];
   const seen = new Set<string>();
   const unique: any[] = [];
 
@@ -200,6 +249,7 @@ export async function getUserActivity(
   useCache: boolean = true,
   excludeDepositsWithdrawals: boolean = true
 ): Promise<any[]> {
+  _polyRequestIndex = 0;
   if (!useCache) {
     return fetchUserActivityFromAPI(user, limit, offset, sortBy, sortDirection, excludeDepositsWithdrawals);
   }
@@ -283,12 +333,17 @@ export async function getAllUserActivity(
   maxRecords?: number | null,
   useCache: boolean = true,
   excludeDepositsWithdrawals: boolean = true,
-  days?: number | null // 新增：按天数限制，如果指定则只获取最近N天的数据
+  days?: number | null, // 按天数限制，只获取最近 N 天
+  startTimestamp?: number | null // 若指定，则从该时间戳（含）拉取到当天，忽略 days
 ): Promise<any[]> {
+  _polyRequestIndex = 0; // 本轮请求序号从 1 开始
   const actualBatchSize = Math.min(batchSize, BATCH_SIZE_MAX);
-  // 如果指定了days，使用days；否则使用默认的6个月
-  const daysToFetch = days || SIX_MONTHS_DAYS;
-  const cutoffTimestamp = Math.floor((Date.now() / 1000) - daysToFetch * 24 * 60 * 60);
+  const nowSec = Math.floor(Date.now() / 1000);
+  const cutoffTimestamp =
+    startTimestamp != null && startTimestamp > 0
+      ? startTimestamp
+      : Math.floor(nowSec - (days ?? SIX_MONTHS_DAYS) * 24 * 60 * 60);
+  const daysToFetch = days ?? SIX_MONTHS_DAYS; // 仅用于 filterRecentData 与缓存语义
 
   // 总体超时控制：最大执行时间5分钟（300秒）
   const MAX_EXECUTION_TIME_MS = 300000; // 5分钟
@@ -324,210 +379,172 @@ export async function getAllUserActivity(
     }
   }
 
-  // 缓存过期或不存在，需要调用API
-  // 先尝试读取已有缓存（如果有），用于后续合并
-  // 如果指定了days，只读取最近N天的缓存（更快）
-  const cachedData = useCache
-    ? (days && cacheManager.getCachedActivitiesByDays
-      ? filterByConditionIdsFromEnv(
-        cacheManager.getCachedActivitiesByDays(user, days, sortBy, sortDirection)
-      )
-      : filterByConditionIdsFromEnv(
-        cacheManager.getAllCachedActivities(user, sortBy, sortDirection)
-      ))
-    : [];
-
-  const allActivities: any[] = [];
-  let offset = 0;
-
-  // 如果有缓存，检查是否需要继续获取
-  if (cachedData && cachedData.length > 0) {
+  // 缓存过期或不存在，需要调用API；先尝试读取已有缓存用于合并
+  let cachedData: any[] = [];
+  if (useCache) {
     try {
-      const firstBatch = await fetchUserActivityFromAPI(
-        user,
-        actualBatchSize,
-        0,
-        sortBy,
-        sortDirection,
-        excludeDepositsWithdrawals
-      );
-
-      if (firstBatch && firstBatch.length > 0) {
-        const filteredBatch = filterRecentData(firstBatch, daysToFetch);
-        if (filteredBatch.length > 0) {
-          const cachedRecent = filterRecentData(cachedData, daysToFetch);
-          const cachedKeys = new Set(
-            cachedRecent.map((item) => `${item.transactionHash || ''}_${item.conditionId || ''}`)
-          );
-          const firstBatchKeys = new Set(
-            filteredBatch.map((item) => `${item.transactionHash || ''}_${item.conditionId || ''}`)
-          );
-
-          const isSubset = Array.from(firstBatchKeys).every((key) => cachedKeys.has(key));
-
-          if (isSubset) {
-            // 返回空数组，后续会使用缓存
-          } else {
-            allActivities.push(...filteredBatch);
-            offset += actualBatchSize;
-          }
-        }
-      }
-    } catch (error) {
-      // 获取第一批数据失败，将使用缓存
+      const raw = days && cacheManager.getCachedActivitiesByDays
+        ? cacheManager.getCachedActivitiesByDays(user, days, sortBy, sortDirection)
+        : cacheManager.getAllCachedActivities(user, sortBy, sortDirection);
+      cachedData = Array.isArray(raw) ? filterByConditionIdsFromEnv(raw) : [];
+    } catch (e) {
+      console.warn('读取缓存失败，将仅使用 API 数据:', (e as Error)?.message);
     }
   }
 
-  // 循环获取数据
-  let lastBatchMinTimestamp: number | null = null;
+  const allActivities: any[] = [];
+  const windowSeconds = ACTIVITY_WINDOW_DAYS * 24 * 60 * 60;
 
-  while (true) {
-    // 检查总体执行时间是否超时
+  // 按时间窗口分页拉取，避免单次 offset 超过 3000 导致漏掉较早的 REDEEM（平仓），从而误判为未平仓
+  for (let windowStart = cutoffTimestamp; windowStart < nowSec; windowStart += windowSeconds) {
     const elapsedTime = Date.now() - startTime;
     if (elapsedTime > MAX_EXECUTION_TIME_MS) {
       console.warn(`获取用户活动数据超时（已执行 ${Math.floor(elapsedTime / 1000)} 秒），返回已获取的数据`);
-      // 如果已经有数据，返回已获取的数据；否则返回缓存数据
-      if (allActivities.length > 0) {
-        break; // 跳出循环，返回已获取的数据
-      } else if (cachedData && cachedData.length > 0) {
-        // 返回缓存数据
-        if (maxRecords) {
-          return cachedData.slice(0, maxRecords);
+      break;
+    }
+
+    const windowEnd = Math.min(windowStart + windowSeconds, nowSec);
+    let windowOffset = 0;
+
+    while (windowOffset < MAX_ACTIVITY_OFFSET) {
+      try {
+        if (windowOffset > 0) {
+          console.log(`[Polymarket] 窗口内分页 offset=${windowOffset}`);
         }
-        return cachedData;
-      } else {
-        throw new Error(`获取用户活动数据超时（已执行 ${Math.floor(elapsedTime / 1000)} 秒），请稍后重试或使用缓存`);
+        const batch = await fetchUserActivityFromAPI(
+          user,
+          actualBatchSize,
+          windowOffset,
+          sortBy,
+          sortDirection,
+          excludeDepositsWithdrawals,
+          windowStart,
+          windowEnd
+        );
+
+        if (!batch || batch.length === 0) break;
+
+        const filteredBatch = filterRecentData(batch, daysToFetch);
+        const uniqueBatch = deduplicateByKey(filteredBatch);
+        if (uniqueBatch.length > 0) {
+          allActivities.push(...uniqueBatch);
+          if (useCache) {
+            try {
+              cacheManager.saveActivities(user, uniqueBatch);
+            } catch (e) {
+              /* 忽略 */
+            }
+          }
+        }
+
+        if (batch.length < actualBatchSize) break;
+        windowOffset += batch.length;
+        // 若 API 在 start/end 下忽略 offset，会一直拿到同一页；用 1 天窗口降低单窗条数，减少漏数
+        if (maxRecords && allActivities.length >= maxRecords) break;
+        await new Promise((r) => setTimeout(r, 300));
+      } catch (error: any) {
+        if (error.code === 'ECONNABORTED' || error.message?.includes('timeout') || error.message?.includes('超时')) {
+          console.warn('窗口请求超时，继续下一窗口');
+          break;
+        }
+        throw error;
       }
     }
 
+    if (maxRecords && allActivities.length >= maxRecords) break;
+    await new Promise((r) => setTimeout(r, 200));
+  }
+
+  // 若 API 忽略 start/end，按窗口拉取可能只得到同一批数据；补拉「最旧」3000 条（ASC）并合并，减少漏平仓
+  if (allActivities.length > 0 && allActivities.length <= MAX_ACTIVITY_OFFSET) {
     try {
-      const batch = await fetchUserActivityFromAPI(
-        user,
-        actualBatchSize,
-        offset,
-        sortBy,
-        sortDirection,
-        excludeDepositsWithdrawals
-      );
-
-      if (!batch || batch.length === 0) {
-        break;
-      }
-
-      const filteredBatch = filterRecentData(batch, daysToFetch);
-
-      // 如果过滤后的批次为空，检查是否所有数据都超过6个月
-      // 如果是，说明已经获取完所有6个月内的数据，可以停止
-      // 但需要检查是否还有更早的数据需要获取
-      if (filteredBatch.length === 0) {
-        // 检查批次中最早的时间戳是否还在6个月内
-        if (batch.length > 0) {
-          const earliestInBatch = Math.min(
-            ...batch.map(item => normalizeTimestamp(item.timestamp || 0))
-          );
-          if (earliestInBatch < cutoffTimestamp) {
-            // 所有数据都超过6个月，停止获取
-            break;
-          }
-        } else {
-          break;
+      let ascOffset = 0;
+      const ascActivities: any[] = [];
+      while (ascOffset < MAX_ACTIVITY_OFFSET) {
+        if (ascOffset > 0) {
+          console.log(`[Polymarket] ASC 补充拉取 下一页 offset=${ascOffset}`);
         }
-        // 如果批次为空但可能还有数据，继续获取下一批
-        offset += actualBatchSize;
-        if (offset > 10000) {
-          break;
-        }
-        await new Promise((resolve) => setTimeout(resolve, 500));
-        continue;
-      }
-
-      // 检测时间逆序
-      if (lastBatchMinTimestamp !== null && filteredBatch.length > 0) {
-        const firstTimestamp = normalizeTimestamp(filteredBatch[0].timestamp || 0);
-        if (firstTimestamp > lastBatchMinTimestamp) {
-          break;
-        }
-      }
-
-      const uniqueBatch = deduplicateByKey(filteredBatch);
-      allActivities.push(...uniqueBatch);
-
-      if (uniqueBatch.length > 0) {
-        lastBatchMinTimestamp = Math.min(
-          ...uniqueBatch.map((item) => normalizeTimestamp(item.timestamp || 0))
+        const batch = await fetchUserActivityFromAPI(
+          user,
+          actualBatchSize,
+          ascOffset,
+          sortBy,
+          'ASC',
+          excludeDepositsWithdrawals,
+          cutoffTimestamp,
+          nowSec
         );
-      }
-
-      // 增量保存缓存
-      if (useCache && uniqueBatch.length > 0) {
-        try {
-          cacheManager.saveActivities(user, uniqueBatch);
-        } catch (e) {
-          // 保存缓存失败，忽略错误
-        }
-      }
-
-      if (maxRecords && allActivities.length >= maxRecords) {
-        allActivities.splice(maxRecords);
-        break;
-      }
-
-      offset += actualBatchSize;
-      // 增加offset限制，确保能获取更多历史数据
-      if (offset > 50000) {
-        break;
-      }
-
-      // 添加延迟避免请求过快
-      await new Promise((resolve) => setTimeout(resolve, 500));
-    } catch (error: any) {
-      // 如果是超时错误，尝试返回已获取的数据或缓存数据
-      if (error.code === 'ECONNABORTED' || error.message?.includes('timeout') || error.message?.includes('超时')) {
-        console.warn('API请求超时，尝试返回已获取的数据或缓存数据');
-        if (allActivities.length > 0) {
-          break; // 跳出循环，返回已获取的数据
-        } else if (cachedData && cachedData.length > 0) {
-          // 返回缓存数据
-          if (maxRecords) {
-            return cachedData.slice(0, maxRecords);
+        if (!batch || batch.length === 0) {
+          if (ascOffset > 0) {
+            console.log(`[Polymarket] ASC 结束: 本页 0 条，已共补拉 ${ascActivities.length} 条`);
           }
-          return cachedData;
+          break;
+        }
+        const filtered = filterRecentData(batch, daysToFetch);
+        ascActivities.push(...filtered);
+        if (batch.length < actualBatchSize) {
+          console.log(`[Polymarket] ASC 结束: 本页 ${batch.length} 条（不足一页），已共补拉 ${ascActivities.length} 条`);
+          break;
+        }
+        ascOffset += batch.length;
+        await new Promise((r) => setTimeout(r, 300));
+      }
+      if (ascActivities.length > 0) {
+        const keys = new Set(allActivities.map((item) => `${item.transactionHash || ''}_${item.conditionId || ''}`));
+        for (const item of ascActivities) {
+          const key = `${item.transactionHash || ''}_${item.conditionId || ''}`;
+          if (!keys.has(key)) {
+            allActivities.push(item);
+            keys.add(key);
+          }
         }
       }
-      throw error;
+    } catch (e) {
+      const err = e as Error;
+      console.warn('ASC 补充拉取失败，已忽略:', err?.message);
+      // 若为 offset 超限等 4xx，不再重试，避免刷屏
+      if (err?.message?.includes('400') || err?.message?.includes('offset')) {
+        console.log('[Polymarket] ASC 因 API 限制终止，已合并此前补拉数据');
+      }
     }
   }
 
-  // 合并缓存和API数据
-  if (cachedData && cachedData.length > 0) {
-    const mergedData = deduplicateByKey(allActivities);
-    const cachedRecent = filterRecentData(cachedData, daysToFetch);
-    const cachedKeys = new Set(
-      mergedData.map((item) => `${item.transactionHash || ''}_${item.conditionId || ''}`)
-    );
+  let result = deduplicateByKey(allActivities);
+  result.sort((a, b) => {
+    const aTime = normalizeTimestamp(a.timestamp || 0);
+    const bTime = normalizeTimestamp(b.timestamp || 0);
+    return sortDirection === 'DESC' ? bTime - aTime : aTime - bTime;
+  });
+  if (maxRecords) result = result.slice(0, maxRecords);
 
+  // 强制刷新（use_cache=false）时也写回缓存，下次查询即可用新数据
+  if (!useCache && result.length > 0) {
+    try {
+      cacheManager.saveActivities(user, result);
+    } catch (e) {
+      /* 忽略 */
+    }
+  }
+
+  // 合并缓存中可能存在的额外记录（避免漏掉）
+  if (cachedData && cachedData.length > 0) {
+    const resultKeys = new Set(result.map((item) => `${item.transactionHash || ''}_${item.conditionId || ''}`));
+    const cachedRecent = filterRecentData(cachedData, daysToFetch);
     for (const item of cachedRecent) {
       const key = `${item.transactionHash || ''}_${item.conditionId || ''}`;
-      if (!cachedKeys.has(key)) {
-        mergedData.push(item);
+      if (!resultKeys.has(key)) {
+        result.push(item);
+        resultKeys.add(key);
       }
     }
-
-    mergedData.sort((a, b) => {
+    result.sort((a, b) => {
       const aTime = normalizeTimestamp(a.timestamp || 0);
       const bTime = normalizeTimestamp(b.timestamp || 0);
       return sortDirection === 'DESC' ? bTime - aTime : aTime - bTime;
     });
-
-    if (maxRecords) {
-      mergedData.splice(maxRecords);
-    }
-
-    // 对合并后的数据也应用过滤（确保缓存数据被过滤）
-    return filterByConditionIdsFromEnv(mergedData);
+    if (maxRecords) result = result.slice(0, maxRecords);
   }
 
-  // 对最终结果也应用过滤
-  return filterByConditionIdsFromEnv(allActivities);
+  return filterByConditionIdsFromEnv(result);
 }
 
