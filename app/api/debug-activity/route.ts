@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { cacheManager } from '../../../../lib/cache';
-import { getAllUserActivity } from '../../../../lib/polymarketApi';
+import { cacheManager } from '../../../lib/cache';
+import { getAllUserActivity } from '../../../lib/polymarketApi';
 
 const USER = '0x8ec4c13da685b5505399889012a57b954fb246c2';
 
