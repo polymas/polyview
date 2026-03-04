@@ -21,11 +21,12 @@ export async function GET(request: NextRequest) {
   const from_ts = nowSec - 30 * 24 * 60 * 60;
 
   try {
-    const activities = await getActivityFromPolyActivity(USER, {
+    const result = await getActivityFromPolyActivity(USER, {
       from_ts,
       to_ts: nowSec,
       limit: 3000,
     });
+    const activities = result.data;
 
     const rawForMarket = activities.filter(
       (a: any) => (a.conditionId || '').toLowerCase() === cidLower
@@ -63,7 +64,7 @@ export async function GET(request: NextRequest) {
 
     return NextResponse.json({
       conditionId,
-      totalActivitiesFetched: activities.length,
+      totalActivitiesFetched: result.data.length,
       rawForThisMarket: rawForMarket.length,
       raw: rawForMarket,
       transformed,
