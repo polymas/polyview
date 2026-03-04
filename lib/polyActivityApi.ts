@@ -1,8 +1,8 @@
 /**
- * poly_activity 缓存后端客户端（新源）
+ * poly_activity 后端客户端（数据源：polyking.site，本应用不做本地缓存）
  * 文档: https://www.polyking.site/activity/llms.txt
  * GET /wallets/{address}/activity?from_ts=&to_ts=&limit=&type=&force_refresh=
- * 返回格式统一为与旧源兼容的 camelCase，供 /api/activity 及前端复用。
+ * 返回格式统一为 camelCase，供 /api/activity 及前端复用。
  */
 
 const DEFAULT_BASE = 'https://www.polyking.site/activity';

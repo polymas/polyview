@@ -18,7 +18,7 @@
 - **数据可视化**: Recharts
 - **日期处理**: date-fns
 - **HTTP 客户端**: Axios
-- **数据库**: SQLite (better-sqlite3)
+- **活动数据源**: polyking.site（无本地缓存）
 
 ## 安装和运行
 
@@ -75,15 +75,10 @@ vercel
 
 ### 环境变量
 
-如果需要自定义配置，可以在 Vercel 项目设置中添加环境变量：
+如需自定义配置，可在 Vercel 项目设置中添加：
 
-- `DB_FILE`: 数据库文件路径（默认：`/tmp/polymarket_cache.db`，Vercel 使用临时存储）
-- `FILTER_CONDITION_IDS`: 用于排除活动数据的 conditionId 列表（可选，如果设置则排除匹配这些 conditionId 的活动记录）。支持多个 conditionId，使用逗号分隔，例如：`0x123...,0x456...,0x789...`
-
-**注意**: Vercel 的 `/tmp` 目录是临时存储，重启后会丢失。如需持久化，建议使用：
-- Vercel KV (Redis)
-- Vercel Postgres
-- 或其他外部数据库服务
+- `POLY_ACTIVITY_BASE`: 活动数据后端地址（默认：`https://www.polyking.site/activity`）
+- `FILTER_CONDITION_IDS`: 排除的活动 conditionId 列表（可选，逗号分隔）
 
 ## 使用说明
 
@@ -94,13 +89,9 @@ vercel
 
 ## API 端点
 
-项目提供以下 API 端点：
-
-- `GET /api/activity` - 获取用户活动记录
-  - 参数: `user` (必需), `limit` (0 或 -1 表示全部), `offset`, `sort_by`, `sort_direction`, `use_cache`, `days` (仅当 limit 为 0/-1 时生效，限制最近 N 天)
+- `GET /api/activity` - 获取用户活动记录（数据来自 polyking.site，无本地缓存）
+  - 参数: `user` (必需), `limit` (0 或 -1 表示全部), `offset`, `sort_by`, `sort_direction`, `use_cache`（传 `false` 时向后端请求强制刷新）, `days`, `range=month`
 - `GET /api/health` - 健康检查
-- `GET /api/cache/stats` - 查看缓存统计
-- `DELETE /api/cache/clear` - 清除用户缓存
 
 ## 项目结构
 
@@ -108,8 +99,7 @@ vercel
 polyview/
 ├── app/
 │   ├── api/              # API Routes
-│   │   ├── activity/     # 活动数据 API
-│   │   ├── cache/        # 缓存管理 API
+│   │   ├── activity/     # 活动数据 API（代理至 polyking.site）
 │   │   └── health/       # 健康检查 API
 │   ├── components/       # React 组件
 │   │   ├── PnLTable.tsx           # 盈亏表格组件
@@ -118,16 +108,16 @@ polyview/
 │   │   ├── Statistics.tsx        # 统计信息组件
 │   │   └── HoldingDurationChart.tsx   # 持仓时长分布图表
 │   ├── services/         # 服务层
-│   │   └── polymarketApi.ts      # Polymarket API 集成
+│   │   └── polymarketApi.ts      # 前端调用 /api/activity
 │   ├── utils/            # 工具函数
 │   │   └── pnlCalculator.ts      # 盈亏计算逻辑
 │   ├── types.ts          # TypeScript 类型定义
 │   ├── page.tsx          # 主页面
 │   ├── layout.tsx        # 布局组件
 │   └── globals.css       # 全局样式
-├── lib/                  # 后端库
-│   ├── cache.ts          # SQLite 缓存管理
-│   └── polymarketApi.ts  # Polymarket API 调用逻辑
+├── lib/
+│   ├── polyActivityApi.ts  # polyking.site 活动接口客户端
+│   └── polymarketApi.ts    # Polymarket 直连 API（脚本用）
 ├── next.config.mjs       # Next.js 配置
 ├── vercel.json           # Vercel 部署配置
 └── package.json
@@ -135,20 +125,15 @@ polyview/
 
 ## 工作原理
 
-1. **数据获取**: 前端调用 `/api/activity` 获取用户交易记录
-2. **缓存机制**: 使用 SQLite 数据库缓存 API 响应，减少对 Polymarket API 的请求
-3. **数据计算**: 前端使用 `pnlCalculator` 计算盈亏、统计数据等
-4. **数据展示**: 使用 React 组件和 Recharts 可视化展示数据
+1. **数据获取**: 前端调用 `/api/activity`，Next.js API 将请求转发至 **polyking.site** 获取用户活动数据（本应用不做本地缓存）
+2. **数据计算**: 前端使用 `pnlCalculator` 计算盈亏、统计数据等
+3. **数据展示**: 使用 React 组件和 Recharts 可视化展示数据
 
 ## 注意事项
 
-- **真实数据**: 本应用直接调用 Polymarket 的 Data API（`https://data-api.polymarket.com`）获取交易数据
-- **接口兼容**: 活动接口会先请求 `/activity`，若 404 则回退到 `/v1/activity`；单次 limit 上限 100，**offset 上限 3000**（超过会 400）
-- **数据限制**: 
-  - 拉取「全部」时按**时间窗口**（默认每段 7 天）分页请求，避免单次 offset 超 3000 导致漏掉较早的平仓（REDEEM），从而误判为「开仓未平」
-  - 如果钱包地址没有交易记录，会显示相应提示
-- **网络要求**: 需要能够访问 Polymarket 的 API 端点
-- **缓存**: 数据会缓存在本地 SQLite 数据库中，提高查询速度
+- **数据源**: 活动数据由 **polyking.site** 提供，本应用不缓存，每次查询由后端返回
+- **网络**: 部署环境需能访问 `https://www.polyking.site/activity`
+- 若钱包地址无交易记录，会显示相应提示
 
 ## 开发
 
