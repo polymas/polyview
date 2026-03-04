@@ -1,6 +1,7 @@
 'use client';
 
-import { useState, useEffect, useCallback, Suspense } from 'react';
+import { useState, useEffect, useCallback, useMemo, Suspense } from 'react';
+import { format } from 'date-fns';
 import { useSearchParams, useRouter, usePathname } from 'next/navigation';
 import { getWalletTransactions } from './services/polymarketApi';
 import { calculatePropositionPnL, calculateDailyPnL, calculateStatistics, calculateHoldingDurations } from './utils/pnlCalculator';
@@ -34,6 +35,8 @@ function HomeContent() {
   const [showFavoriteModal, setShowFavoriteModal] = useState<boolean>(false);
   const [favoriteNote, setFavoriteNote] = useState<string>('');
   const [shareSuccess, setShareSuccess] = useState<boolean>(false);
+  /** 盈亏日历选中的日期 yyyy-MM-dd，用于本地过滤「当天平仓」的命题；null 表示不过滤 */
+  const [selectedCalendarDate, setSelectedCalendarDate] = useState<string | null>(null);
 
   // 更新URL参数
   const updateUrlAddress = (address: string) => {
@@ -78,6 +81,7 @@ function HomeContent() {
     setTransactions([]);
     setPropositions([]);
     setDailyPnL([]);
+    setSelectedCalendarDate(null);
     setStatistics(null);
     setHoldingDurations([]);
 
@@ -131,6 +135,21 @@ function HomeContent() {
   const handleNextMonth = () => {
     setCurrentMonth(new Date(currentMonth.getFullYear(), currentMonth.getMonth() + 1, 1));
   };
+
+  /** 点击盈亏日历某天：筛选当天平仓的命题；再次点击同一天则清除筛选 */
+  const handleCalendarDayClick = useCallback((dateStr: string) => {
+    setSelectedCalendarDate((prev) => (prev === dateStr ? null : dateStr));
+  }, []);
+
+  /** 根据日历选中日期过滤命题（只保留当天平仓的）；未选则返回全部 */
+  const propositionsForTable = useMemo(() => {
+    if (!selectedCalendarDate) return propositions;
+    return propositions.filter((prop) => {
+      if (prop.status !== 'CLOSED' || prop.closeTime == null) return false;
+      const closeDateStr = format(new Date(prop.closeTime), 'yyyy-MM-dd');
+      return closeDateStr === selectedCalendarDate;
+    });
+  }, [propositions, selectedCalendarDate]);
 
   // 处理收藏
   const handleFavorite = () => {
@@ -334,7 +353,12 @@ function HomeContent() {
                     </div>
                   </div>
                   <div className="min-h-[280px] sm:min-h-[320px]">
-                    <PnLCalendar dailyPnL={dailyPnL} currentMonth={currentMonth} />
+                    <PnLCalendar
+                      dailyPnL={dailyPnL}
+                      currentMonth={currentMonth}
+                      onDayClick={handleCalendarDayClick}
+                      selectedDate={selectedCalendarDate}
+                    />
                   </div>
                 </div>
 
@@ -373,11 +397,25 @@ function HomeContent() {
             </div>
 
             <div className="flex-1 flex flex-col min-h-[400px] sm:min-h-[500px]">
-              <h2 className="text-sm sm:text-base font-semibold text-gray-900 mb-2">
-                命题盈亏表格
-              </h2>
+              <div className="flex flex-wrap items-center gap-2 mb-2">
+                <h2 className="text-sm sm:text-base font-semibold text-gray-900">
+                  命题盈亏表格
+                </h2>
+                {selectedCalendarDate && (
+                  <span className="inline-flex items-center gap-1.5 px-2 py-1 bg-blue-50 text-blue-800 rounded text-xs border border-blue-200">
+                    <span>已按 {selectedCalendarDate} 筛选（当天平仓）</span>
+                    <button
+                      type="button"
+                      onClick={() => setSelectedCalendarDate(null)}
+                      className="hover:underline font-medium"
+                    >
+                      清除
+                    </button>
+                  </span>
+                )}
+              </div>
               <div className="flex-1 min-h-0 bg-white rounded-lg shadow-sm border border-gray-200 p-2 sm:p-3">
-                <PnLTable propositions={propositions} />
+                <PnLTable propositions={propositionsForTable} />
               </div>
             </div>
           </div>

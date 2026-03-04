@@ -6,11 +6,17 @@ import zhCN from 'date-fns/locale/zh-CN';
 interface PnLCalendarProps {
   dailyPnL: DailyPnL[];
   currentMonth?: Date;
+  /** 点击某天时回调，传入 yyyy-MM-dd；用于本地过滤当天平仓的命题 */
+  onDayClick?: (dateStr: string) => void;
+  /** 当前选中的日期 yyyy-MM-dd，用于高亮 */
+  selectedDate?: string | null;
 }
 
 export const PnLCalendar: React.FC<PnLCalendarProps> = ({
   dailyPnL,
-  currentMonth = new Date()
+  currentMonth = new Date(),
+  onDayClick,
+  selectedDate = null,
 }) => {
   const dailyMap = useMemo(() => {
     const map = new Map<string, DailyPnL>();
@@ -70,13 +76,16 @@ export const PnLCalendar: React.FC<PnLCalendarProps> = ({
           const daily = dailyMap.get(dateStr);
           const isCurrentDay = isToday(day);
           const isCurrentMonth = isSameMonth(day, currentMonth);
+          const isSelected = selectedDate === dateStr;
 
           return (
-            <div
+            <button
+              type="button"
               key={dateStr}
-              className={`h-10 sm:h-12 border rounded p-0.5 flex flex-col items-center justify-center ${daily ? getPnLColor(daily.pnl) : 'bg-gray-50 border-gray-200'
+              onClick={() => onDayClick?.(dateStr)}
+              className={`h-10 sm:h-12 border rounded p-0.5 flex flex-col items-center justify-center w-full text-left ${daily ? getPnLColor(daily.pnl) : 'bg-gray-50 border-gray-200'
                 } ${isCurrentDay ? 'ring-1 ring-blue-500' : ''} ${!isCurrentMonth ? 'opacity-50' : ''
-                }`}
+                } ${onDayClick ? 'cursor-pointer hover:opacity-90' : ''} ${isSelected ? 'ring-2 ring-blue-600 ring-offset-1' : ''}`}
             >
               <div className="text-[9px] sm:text-[10px] font-medium leading-tight">
                 {format(day, 'd')}
@@ -93,11 +102,16 @@ export const PnLCalendar: React.FC<PnLCalendarProps> = ({
                   )}
                 </>
               )}
-            </div>
+            </button>
           );
         })}
       </div>
 
+      {onDayClick && (
+        <p className="mt-1 text-[9px] sm:text-[10px] text-gray-500 text-center">
+          点击某天可筛选当天平仓的命题
+        </p>
+      )}
       {/* 图例 */}
       <div className="mt-1 sm:mt-1.5 flex items-center justify-center gap-1.5 sm:gap-2 text-[9px] sm:text-[10px] flex-wrap">
         <div className="flex items-center gap-0.5">
