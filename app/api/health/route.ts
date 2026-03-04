@@ -1,20 +1,24 @@
 import { NextResponse } from 'next/server';
-import axios from 'axios';
 
-const BASE_URL = 'https://data-api.polymarket.com';
+const POLY_ACTIVITY_BASE = (process.env.POLY_ACTIVITY_BASE || 'https://www.polyking.site/activity').replace(
+  /\/$/,
+  ''
+);
 
 export async function GET() {
   try {
-    await axios.get(`${BASE_URL}/health`, { timeout: 5000 });
-    return NextResponse.json({
-      status: 'healthy',
-      polymarket_api: 'accessible',
+    const res = await fetch(`${POLY_ACTIVITY_BASE}/`, {
+      method: 'HEAD',
+      signal: AbortSignal.timeout(5000),
     });
-  } catch (error) {
     return NextResponse.json({
       status: 'healthy',
-      polymarket_api: 'unavailable',
+      poly_activity: res.ok ? 'accessible' : 'unavailable',
+    });
+  } catch {
+    return NextResponse.json({
+      status: 'healthy',
+      poly_activity: 'unavailable',
     });
   }
 }
-

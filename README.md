@@ -97,7 +97,7 @@ vercel
 项目提供以下 API 端点：
 
 - `GET /api/activity` - 获取用户活动记录
-  - 参数: `user` (必需), `limit`, `offset`, `sort_by`, `sort_direction`, `use_cache`
+  - 参数: `user` (必需), `limit` (0 或 -1 表示全部), `offset`, `sort_by`, `sort_direction`, `use_cache`, `days` (仅当 limit 为 0/-1 时生效，限制最近 N 天)
 - `GET /api/health` - 健康检查
 - `GET /api/cache/stats` - 查看缓存统计
 - `DELETE /api/cache/clear` - 清除用户缓存
@@ -142,9 +142,10 @@ polyview/
 
 ## 注意事项
 
-- **真实数据**: 本应用直接调用 Polymarket 的真实 API 获取交易数据
+- **真实数据**: 本应用直接调用 Polymarket 的 Data API（`https://data-api.polymarket.com`）获取交易数据
+- **接口兼容**: 活动接口会先请求 `/activity`，若 404 则回退到 `/v1/activity`；单次 limit 上限 100，**offset 上限 3000**（超过会 400）
 - **数据限制**: 
-  - API 查询限制为最多 1000 条记录
+  - 拉取「全部」时按**时间窗口**（默认每段 7 天）分页请求，避免单次 offset 超 3000 导致漏掉较早的平仓（REDEEM），从而误判为「开仓未平」
   - 如果钱包地址没有交易记录，会显示相应提示
 - **网络要求**: 需要能够访问 Polymarket 的 API 端点
 - **缓存**: 数据会缓存在本地 SQLite 数据库中，提高查询速度

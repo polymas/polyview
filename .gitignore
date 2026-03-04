@@ -17,6 +17,13 @@ dist-ssr
 out/
 build/
 
+# Dump 输出（脚本请求 API 生成）
+scripts/out/
+
+# 1 月至今交易抓取：输出与断点续传进度
+scripts/data/address-trades-from-jan.csv
+scripts/data/address-trades-jan-progress.json
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json

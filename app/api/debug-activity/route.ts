@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { cacheManager } from '../../../lib/cache';
-import { getAllUserActivity } from '../../../lib/polymarketApi';
+import { getActivityFromPolyActivity } from '../../../lib/polyActivityApi';
 
 const USER = '0x8ec4c13da685b5505399889012a57b954fb246c2';
 
@@ -18,19 +17,15 @@ export async function GET(request: NextRequest) {
   }
 
   const cidLower = conditionId.toLowerCase();
+  const nowSec = Math.floor(Date.now() / 1000);
+  const from_ts = nowSec - 30 * 24 * 60 * 60;
 
   try {
-    const activities = await getAllUserActivity(
-      USER,
-      cacheManager,
-      'TIMESTAMP',
-      'DESC',
-      500,
-      null,
-      false,
-      true,
-      30
-    );
+    const activities = await getActivityFromPolyActivity(USER, {
+      from_ts,
+      to_ts: nowSec,
+      limit: 3000,
+    });
 
     const rawForMarket = activities.filter(
       (a: any) => (a.conditionId || '').toLowerCase() === cidLower

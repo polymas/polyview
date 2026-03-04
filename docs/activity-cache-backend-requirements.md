@@ -184,7 +184,27 @@ CREATE INDEX idx_activities_address_ts ON activities(address, ts);
 
 ---
 
-## 8. 总结
+## 8. 附录：已知数据异常与调查记录
+
+### 8.1 Condition 下 REDEEM share 新旧版本区分（示例）
+
+**Condition ID**：`0xac11f0d8d88a006cc3df2bb1cd545dd3e17d21036adad887d5035530a3780669`  
+**市场命题**：Counter-Strike: Legion vs THUNDER dOWNUNDER - Map 2 Winner
+
+**现象**：同一用户、同一头寸（例如买入 100 share）可能先被数据源记录为 **REDEEM 50**（旧/错误），后续更正为 **REDEEM 100**（新/正确）。
+
+**规则**（用于区分新旧或去重时参考）：
+
+| REDEEM share | 含义 |
+|--------------|------|
+| **100**（与买入 share 一致） | **新**：正确、完整平仓记录，应以该条为准。 |
+| **50**（仅为买入的一半） | **旧**：早期或错误版本，若同用户同 condition 已存在 redeem=100，应忽略或覆盖。 |
+
+**数据依据**：在 `scripts/data/address-trades-from-jan.csv` 中，该 condition 下存在「买入 100、REDEEM 50」的记录（如地址 `0x9672d402...`、`0x38cc5cf506aff32b8e26c5d19c7b288561805c4f`）；正确数据应为「买入 100、REDEEM 100」。缓存后端若做去重或「以新替旧」逻辑时，可按「同一 conditionId + 同一 user + 同一头寸」下 **redeem share 与买入 share 一致** 的为准。
+
+---
+
+## 9. 总结
 
 | 场景 | 起始时间 | 结束时间 |
 |------|----------|----------|
