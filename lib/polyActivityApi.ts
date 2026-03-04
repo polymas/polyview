@@ -1,9 +1,8 @@
 /**
- * poly_activity 后端客户端（数据源：polyking.site，本应用不做本地缓存）
+ * poly_activity 后端客户端（服务端用，如 /api/activity 代理；前端已直连 polyking.site）
  * 文档: https://www.polyking.site/activity/llms.txt
- * GET /wallets/{address}/activity?from_ts=&to_ts=&limit=&type=&force_refresh=
- * 返回格式统一为 camelCase，供 /api/activity 及前端复用。
  */
+import { mapItemToLegacyShape } from './activityMapping';
 
 const DEFAULT_BASE = 'https://www.polyking.site/activity';
 const LIMIT_MAX = 3000;
@@ -11,31 +10,6 @@ const LIMIT_MAX = 3000;
 function getBase(): string {
   const base = (process.env.POLY_ACTIVITY_BASE || DEFAULT_BASE).replace(/\/$/, '');
   return base;
-}
-
-/** 新源单条可能是 snake_case：ts, type, share, condition_id, token_id, transaction_hash */
-function mapItemToLegacyShape(item: Record<string, unknown>): Record<string, unknown> {
-  const ts = Number(item.ts ?? item.timestamp ?? 0);
-  const timestamp = ts > 1e10 ? Math.floor(ts / 1000) : ts;
-  const typeRaw = String(item.type ?? item.side ?? 'TRADE').toUpperCase();
-  const isRedeem = typeRaw === 'REDEEM';
-  const type = isRedeem ? 'REDEEM' : 'TRADE';
-  const side = !isRedeem && (typeRaw === 'BUY' || typeRaw === 'SELL') ? typeRaw : undefined;
-  const share = Number(item.share ?? item.size ?? 0);
-  return {
-    timestamp,
-    type,
-    ...(side && { side }),
-    size: share,
-    usdcSize: item.usdc_size ?? item.usdcSize,
-    price: item.price ?? 0,
-    title: item.title ?? item.question ?? '',
-    outcome: item.outcome ?? '',
-    conditionId: item.condition_id ?? item.conditionId ?? '',
-    tokenId: item.token_id ?? item.tokenId ?? item.asset ?? '',
-    transactionHash: item.transaction_hash ?? item.transactionHash ?? '',
-    user: item.user ?? '',
-  };
 }
 
 function filterByConditionIdsFromEnv(data: Record<string, unknown>[]): Record<string, unknown>[] {
@@ -61,13 +35,19 @@ export type GetActivityOptions = {
   force_refresh?: boolean;
 };
 
+export type GetActivityResult = {
+  data: Record<string, unknown>[];
+  backendRequestUrl?: string;
+  backendRequestElapsedSec?: string;
+};
+
 /**
  * 从 poly_activity 拉取指定钱包、时间区间的活动，返回与旧源兼容的 camelCase 数组。
  */
 export async function getActivityFromPolyActivity(
   address: string,
   options: GetActivityOptions
-): Promise<Record<string, unknown>[]> {
+): Promise<GetActivityResult> {
   const base = getBase();
   const addr = address.toLowerCase();
   const url = `${base}/wallets/${encodeURIComponent(addr)}/activity`;
@@ -79,13 +59,19 @@ export async function getActivityFromPolyActivity(
   if (options.type) params.type = options.type;
   if (options.force_refresh === true) params.force_refresh = true;
 
+  const fullUrl = `${url}?${new URLSearchParams(params as Record<string, string>).toString()}`;
+  console.log('[polyActivityApi] 后端请求:', fullUrl);
+
+  const startMs = Date.now();
   const res = await fetch(
-    `${url}?${new URLSearchParams(params as Record<string, string>).toString()}`,
+    fullUrl,
     {
       headers: { Accept: 'application/json' },
       signal: AbortSignal.timeout(60000),
     }
   );
+  const elapsedSec = ((Date.now() - startMs) / 1000).toFixed(2);
+  console.log('[polyActivityApi] 后端请求耗时:', elapsedSec, '秒', 'status:', res.status);
 
   if (!res.ok) {
     const text = await res.text();
@@ -95,5 +81,9 @@ export async function getActivityFromPolyActivity(
   const body = (await res.json()) as { data?: unknown[]; total?: number };
   const raw = Array.isArray(body?.data) ? body.data : [];
   const mapped = raw.map((item) => mapItemToLegacyShape(item as Record<string, unknown>));
-  return filterByConditionIdsFromEnv(mapped);
+  return {
+    data: filterByConditionIdsFromEnv(mapped),
+    backendRequestUrl: fullUrl,
+    backendRequestElapsedSec: elapsedSec,
+  };
 }

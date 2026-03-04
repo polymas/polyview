@@ -77,8 +77,9 @@ vercel
 
 如需自定义配置，可在 Vercel 项目设置中添加：
 
-- `POLY_ACTIVITY_BASE`: 活动数据后端地址（默认：`https://www.polyking.site/activity`）
-- `FILTER_CONDITION_IDS`: 排除的活动 conditionId 列表（可选，逗号分隔）
+- `NEXT_PUBLIC_POLY_ACTIVITY_BASE`: 前端直连的活动后端地址（默认：`https://www.polyking.site/activity`）
+- `POLY_ACTIVITY_BASE`: 服务端代理 `/api/activity` 时使用的后端地址（可选）
+- `FILTER_CONDITION_IDS`: 服务端排除的 conditionId 列表（仅代理接口生效，可选）
 
 ## 使用说明
 
@@ -125,7 +126,7 @@ polyview/
 
 ## 工作原理
 
-1. **数据获取**: 前端调用 `/api/activity`，Next.js API 将请求转发至 **polyking.site** 获取用户活动数据（本应用不做本地缓存）
+1. **数据获取**: 前端直连 **polyking.site** 获取用户活动数据（不经过本应用 API，无本地缓存）
 2. **数据计算**: 前端使用 `pnlCalculator` 计算盈亏、统计数据等
 3. **数据展示**: 使用 React 组件和 Recharts 可视化展示数据
 

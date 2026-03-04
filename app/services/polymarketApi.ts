@@ -1,11 +1,12 @@
 import axios from 'axios';
 import { PolymarketTransaction } from '../types';
+import { mapItemToLegacyShape, getLastMonthFirstUtcSeconds } from '../../lib/activityMapping';
 
-// Next.js API 端点
-const API_BASE_URL = '/api';
+const POLY_ACTIVITY_BASE = process.env.NEXT_PUBLIC_POLY_ACTIVITY_BASE || 'https://www.polyking.site/activity';
+const LIMIT_MAX = 3000;
 
 /**
- * 从本地 API 获取用户活动数据
+ * 前端直连 polyking.site 获取用户活动数据（不经过本应用 API 代理）
  * @param walletAddress 钱包地址
  * @param days 获取最近 N 天的数据（range=month 时忽略）
  * @param forceRefresh 是否强制刷新
@@ -17,33 +18,44 @@ async function getActivitiesFromLocalAPI(
   forceRefresh = false,
   rangeMonth = false
 ): Promise<any[]> {
-  try {
-    const params: any = {
-      user: walletAddress,
-      limit: -1,
-      sort_by: 'TIMESTAMP',
-      sort_direction: 'DESC',
-      use_cache: !forceRefresh,
-    };
-    if (rangeMonth) {
-      params.range = 'month';
-    } else if (days) {
-      params.days = days;
-    }
+  const base = POLY_ACTIVITY_BASE.replace(/\/$/, '');
+  const addr = walletAddress.toLowerCase();
+  const nowSec = Math.floor(Date.now() / 1000);
+  const from_ts = rangeMonth
+    ? getLastMonthFirstUtcSeconds()
+    : nowSec - (days ?? 180) * 24 * 60 * 60;
+  const to_ts = nowSec;
 
-    const response = await axios.get(`${API_BASE_URL}/activity`, {
-      params,
-      timeout: 300000,  // 300秒（5分钟）超时，因为可能需要获取大量数据并合并
+  const params: Record<string, string | number | boolean> = {
+    from_ts,
+    to_ts,
+    limit: LIMIT_MAX,
+  };
+  if (forceRefresh) params.force_refresh = true;
+
+  const url = `${base}/wallets/${encodeURIComponent(addr)}/activity?${new URLSearchParams(params as Record<string, string>).toString()}`;
+  const startMs = Date.now();
+
+  try {
+    const response = await axios.get<{ data?: unknown[] }>(url, {
+      headers: { Accept: 'application/json' },
+      timeout: 120000,
     });
 
-    if (response.data && response.data.success && response.data.data) {
-      return response.data.data;
-    }
+    const elapsedSec = ((Date.now() - startMs) / 1000).toFixed(2);
+    console.log('[polyview] 后端请求:', url);
+    console.log('[polyview] 后端请求耗时:', elapsedSec, '秒');
 
-    throw new Error('本地 API 返回数据格式错误');
+    const raw = Array.isArray(response.data?.data) ? response.data.data : [];
+    const mapped = raw.map((item) => mapItemToLegacyShape(item as Record<string, unknown>));
+    mapped.sort((a, b) => (Number(b.timestamp) || 0) - (Number(a.timestamp) || 0));
+    return mapped;
   } catch (error: any) {
-    if (error.code === 'ECONNREFUSED' || error.response?.status === 500) {
-      throw new Error('无法连接到 API 服务，请确保服务已启动');
+    if (error.response?.status) {
+      throw new Error(`活动接口 ${error.response.status}: ${error.response?.data?.message || error.message}`);
+    }
+    if (error.code === 'ECONNABORTED' || error.message?.includes('timeout')) {
+      throw new Error('请求活动数据超时，请稍后重试');
     }
     throw error;
   }
@@ -131,7 +143,7 @@ export async function getWalletTransactions(
     const activities = await getActivitiesFromLocalAPI(normalizedAddress, days, forceRefresh, rangeMonth);
 
     if (!activities || activities.length === 0) {
-      throw new Error('本地 API 返回空数据');
+      throw new Error('活动数据为空');
     }
 
     const transactions = activities
@@ -143,9 +155,7 @@ export async function getWalletTransactions(
   } catch (error: any) {
     throw new Error(
       `无法获取交易记录: ${error.message}\n` +
-      `请确认：\n` +
-      `1. API 服务已启动\n` +
-      `2. 钱包地址 ${walletAddress} 在 Polymarket 上有交易记录`
+      `请确认钱包地址 ${walletAddress} 在 Polymarket 上有交易记录，且网络可访问 polyking.site`
     );
   }
 }

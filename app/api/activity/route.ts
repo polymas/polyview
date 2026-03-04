@@ -53,12 +53,13 @@ export async function GET(request: NextRequest) {
     const to_ts = nowSec;
 
     const requestLimit = limit === 0 || limit === -1 ? 3000 : Math.min(limit + offset, 3000);
-    const data = await getActivityFromPolyActivity(user, {
+    const result = await getActivityFromPolyActivity(user, {
       from_ts,
       to_ts,
       limit: requestLimit,
       force_refresh: forceRefresh,
     });
+    const data = result.data;
 
     const sorted =
       sortDirection.toUpperCase() === 'ASC'
@@ -76,12 +77,19 @@ export async function GET(request: NextRequest) {
             : `成功获取所有 ${sliced.length} 条历史活动记录`
         : `成功获取 ${sliced.length} 条活动记录（offset: ${offset}, limit: ${limit}）`;
 
-    return NextResponse.json({
+    const body: Record<string, unknown> = {
       success: true,
       count: sliced.length,
       data: sliced,
       message,
-    });
+    };
+    if (result.backendRequestUrl != null || result.backendRequestElapsedSec != null) {
+      body._debug = {
+        backendRequestUrl: result.backendRequestUrl,
+        backendRequestElapsedSec: result.backendRequestElapsedSec,
+      };
+    }
+    return NextResponse.json(body);
   } catch (error: unknown) {
     const err = error as { message?: string; code?: string };
     console.error('[api/activity]', err?.message || error);
