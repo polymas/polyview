@@ -184,6 +184,13 @@ export function calculatePropositionPnL(
     const slug = txs[0].slug || '';
     const eventSlug = txs[0].eventSlug || '';
 
+    const tokenIdSet = new Set<string>();
+    txs.forEach((tx) => {
+      const tid = (tx.tokenId || '').toString().trim();
+      if (tid) tokenIdSet.add(tid);
+    });
+    const tokenIds = Array.from(tokenIdSet).sort();
+
     // 过滤掉只有平仓（REDEEM）没有开仓（BUY）的数据
     if (buyTxs.length === 0 && sellTxs.length > 0) {
       // 跳过只有REDEEM没有开仓的数据
@@ -195,6 +202,7 @@ export function calculatePropositionPnL(
       question: txs[0].marketQuestion,
       slug,
       eventSlug,
+      tokenIds,
       totalInvested,
       totalReturned,
       currentValue,

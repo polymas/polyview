@@ -76,6 +76,37 @@ export const PnLTable: React.FC<PnLTableProps> = ({ propositions }) => {
     return prop.status === filterStatus;
   });
 
+  const sortedFilteredPropositions = useMemo(() => {
+    const sorted = [...filteredPropositions];
+    if (sortField) {
+      sorted.sort((a, b) => {
+        let aValue: number | undefined;
+        let bValue: number | undefined;
+
+        if (sortField === 'openTime') {
+          aValue = a.openTime;
+          bValue = b.openTime;
+        } else if (sortField === 'closeTime') {
+          const aHasCloseTime = a.closeTime !== undefined;
+          const bHasCloseTime = b.closeTime !== undefined;
+
+          if (!aHasCloseTime && !bHasCloseTime) return 0;
+          if (!aHasCloseTime) return 1;
+          if (!bHasCloseTime) return -1;
+
+          aValue = a.closeTime;
+          bValue = b.closeTime;
+        }
+
+        if (aValue === undefined && bValue === undefined) return 0;
+        if (aValue === undefined) return sortDirection === 'asc' ? 1 : -1;
+        if (bValue === undefined) return sortDirection === 'asc' ? -1 : 1;
+        return sortDirection === 'asc' ? aValue - bValue : bValue - aValue;
+      });
+    }
+    return sorted;
+  }, [filteredPropositions, sortField, sortDirection]);
+
   const totalPages = Math.ceil(filteredPropositions.length / itemsPerPage);
 
   const handlePageChange = (page: number) => {
@@ -141,49 +172,116 @@ export const PnLTable: React.FC<PnLTableProps> = ({ propositions }) => {
     return format(new Date(timestamp), 'MM-dd HH:mm', { locale: zhCN });
   };
 
+  const escapeCsvField = (value: string | number) => {
+    const text = String(value ?? '');
+    if (text.includes('"') || text.includes(',') || text.includes('\n')) {
+      return `"${text.replace(/"/g, '""')}"`;
+    }
+    return text;
+  };
+
+  const handleExportCsv = () => {
+    const headers = [
+      'title',
+      'conditionId',
+      'tokenId',
+      'outcome',
+      'openTime',
+      'closeTime',
+      'totalInvested',
+      'totalReturned',
+      'currentValue',
+      'pnl',
+      'pnlPercent',
+      'status',
+      'transactions',
+    ];
+
+    const rows = sortedFilteredPropositions.map((prop) => [
+      prop.question || '',
+      prop.market || '',
+      (prop.tokenIds && prop.tokenIds.length > 0 ? prop.tokenIds.join('; ') : ''),
+      prop.outcome || (prop.outcomes?.join(', ') ?? ''),
+      prop.openTime ? new Date(prop.openTime).toISOString() : '',
+      prop.closeTime ? new Date(prop.closeTime).toISOString() : '',
+      prop.totalInvested,
+      prop.totalReturned,
+      prop.currentValue,
+      prop.pnl,
+      prop.pnlPercent,
+      prop.status,
+      prop.transactions.length,
+    ]);
+
+    const csvContent = [
+      headers.join(','),
+      ...rows.map((row) => row.map((cell) => escapeCsvField(cell)).join(',')),
+    ].join('\n');
+
+    const blob = new Blob([`\uFEFF${csvContent}`], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    const now = format(new Date(), 'yyyyMMdd-HHmmss');
+    link.href = url;
+    link.download = `proposition-pnl-${now}.csv`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  };
+
   return (
     <div className="flex flex-col h-full min-h-0">
       {/* 过滤控件 */}
-      <div className="mb-3 sm:mb-4 flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-4">
-        <span className="text-xs sm:text-sm font-medium text-gray-700">状态过滤：</span>
-        <div className="flex gap-1.5 sm:gap-2 flex-wrap">
-          <button
-            onClick={() => {
-              setFilterStatus('ALL');
-              setCurrentPage(1);
-            }}
-            className={`px-2 sm:px-4 py-1.5 sm:py-2 text-xs sm:text-sm rounded-md border transition-colors ${filterStatus === 'ALL'
-              ? 'bg-blue-600 text-white border-blue-600'
-              : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'
-              }`}
-          >
-            全部 ({propositions.length})
-          </button>
-          <button
-            onClick={() => {
-              setFilterStatus('CLOSED');
-              setCurrentPage(1);
-            }}
-            className={`px-2 sm:px-4 py-1.5 sm:py-2 text-xs sm:text-sm rounded-md border transition-colors ${filterStatus === 'CLOSED'
-              ? 'bg-blue-600 text-white border-blue-600'
-              : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'
-              }`}
-          >
-            已平仓 ({propositions.filter(p => p.status === 'CLOSED').length})
-          </button>
-          <button
-            onClick={() => {
-              setFilterStatus('OPEN');
-              setCurrentPage(1);
-            }}
-            className={`px-2 sm:px-4 py-1.5 sm:py-2 text-xs sm:text-sm rounded-md border transition-colors ${filterStatus === 'OPEN'
-              ? 'bg-blue-600 text-white border-blue-600'
-              : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'
-              }`}
-          >
-            持仓中 ({propositions.filter(p => p.status === 'OPEN').length})
-          </button>
+      <div className="mb-3 sm:mb-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 sm:gap-4">
+        <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-4">
+          <span className="text-xs sm:text-sm font-medium text-gray-700">状态过滤：</span>
+          <div className="flex gap-1.5 sm:gap-2 flex-wrap">
+            <button
+              onClick={() => {
+                setFilterStatus('ALL');
+                setCurrentPage(1);
+              }}
+              className={`px-2 sm:px-4 py-1.5 sm:py-2 text-xs sm:text-sm rounded-md border transition-colors ${filterStatus === 'ALL'
+                ? 'bg-blue-600 text-white border-blue-600'
+                : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'
+                }`}
+            >
+              全部 ({propositions.length})
+            </button>
+            <button
+              onClick={() => {
+                setFilterStatus('CLOSED');
+                setCurrentPage(1);
+              }}
+              className={`px-2 sm:px-4 py-1.5 sm:py-2 text-xs sm:text-sm rounded-md border transition-colors ${filterStatus === 'CLOSED'
+                ? 'bg-blue-600 text-white border-blue-600'
+                : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'
+                }`}
+            >
+              已平仓 ({propositions.filter(p => p.status === 'CLOSED').length})
+            </button>
+            <button
+              onClick={() => {
+                setFilterStatus('OPEN');
+                setCurrentPage(1);
+              }}
+              className={`px-2 sm:px-4 py-1.5 sm:py-2 text-xs sm:text-sm rounded-md border transition-colors ${filterStatus === 'OPEN'
+                ? 'bg-blue-600 text-white border-blue-600'
+                : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'
+                }`}
+            >
+              持仓中 ({propositions.filter(p => p.status === 'OPEN').length})
+            </button>
+          </div>
         </div>
+        <button
+          onClick={handleExportCsv}
+          disabled={filteredPropositions.length === 0}
+          className="self-start sm:self-auto px-3 sm:px-4 py-1.5 sm:py-2 text-xs sm:text-sm rounded-md border border-blue-600 bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-blue-600 transition-colors"
+        >
+          导出CSV（当前筛选）
+        </button>
       </div>
 
       {/* 表格 */}
@@ -245,7 +343,22 @@ export const PnLTable: React.FC<PnLTableProps> = ({ propositions }) => {
                       <span>{prop.question}</span>
                     )}
                   </div>
-                  <div className="text-xs text-gray-500 truncate" title={prop.market}>{prop.market}</div>
+                  <div className="text-xs text-gray-500 space-y-0.5 min-w-0">
+                    <div className="truncate font-mono" title={prop.market}>
+                      {prop.market}
+                    </div>
+                    {prop.tokenIds && prop.tokenIds.length > 0 ? (
+                      <div
+                        className="truncate font-mono"
+                        title={prop.tokenIds.join('\n')}
+                      >
+                        tokenId:{' '}
+                        {prop.tokenIds.length === 1
+                          ? prop.tokenIds[0]
+                          : `${prop.tokenIds[0]} 等${prop.tokenIds.length}个`}
+                      </div>
+                    ) : null}
+                  </div>
                 </td>
                 <td className="px-1 py-2">
                   {prop.outcomes && prop.outcomes.length > 1 ? (

@@ -13,6 +13,7 @@ export interface PolymarketTransaction {
   originalType?: 'TRADE' | 'REDEEM';  // 原始类型，用于区分TRADE和REDEEM
   slug?: string;  // 命题的slug，用于构建链接
   eventSlug?: string;  // 事件的slug
+  tokenId?: string;  // 头寸 token（与 conditionId 对应，同一市场可能有多个）
 }
 
 // 命题盈亏数据
@@ -33,6 +34,8 @@ export interface PropositionPnL {
   closeTime?: number;  // 平仓时间戳（最后卖出时间，OPEN状态为undefined）
   slug?: string;  // 命题的slug，用于构建链接
   eventSlug?: string;  // 事件的slug
+  /** 该命题下出现过的 tokenId（去重），同一 condition 多 outcome 时可能多个 */
+  tokenIds?: string[];
 }
 
 // 每日盈亏数据

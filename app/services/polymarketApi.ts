@@ -117,6 +117,7 @@ function transformActivityToTransaction(activity: any): PolymarketTransaction {
     originalType: originalType as 'TRADE' | 'REDEEM',
     slug: activity.slug || '',
     eventSlug: activity.eventSlug || '',
+    tokenId: String(activity.tokenId ?? activity.token_id ?? activity.asset ?? '').trim(),
   };
 }
 
