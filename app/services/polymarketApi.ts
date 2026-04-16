@@ -39,7 +39,7 @@ async function getActivitiesFromLocalAPI(
   walletAddress: string,
   days?: number,
   forceRefresh = false,
-  rangeMonth = false
+  range: 'month' | 'last_month' | null = 'month'
 ): Promise<any[]> {
   const base = ACTIVITY_API_PATH.replace(/\/$/, '');
   const addr = walletAddress.toLowerCase();
@@ -47,8 +47,8 @@ async function getActivitiesFromLocalAPI(
     user: addr,
     // 让服务端一次拉到上限后再统一裁剪与排序
     limit: 0,
-    range: rangeMonth ? 'month' : undefined,
-    days: rangeMonth ? undefined : (days ?? 180),
+    range: range ?? undefined,
+    days: range ? undefined : (days ?? 180),
     use_cache: forceRefresh ? 'false' : 'true',
     sort_direction: 'DESC',
   };
@@ -163,15 +163,15 @@ function transformActivityToTransaction(activity: any): PolymarketTransaction {
 /**
  * 获取指定钱包地址的交易记录
  * @param walletAddress 钱包地址
- * @param days 按天数时获取最近 N 天（rangeMonth 为 true 时忽略）
+ * @param days 按天数时获取最近 N 天（range 有值时忽略）
  * @param forceRefresh 为 true 时忽略缓存，强制重新拉取
- * @param rangeMonth 为 true 时拉取「本月1号至当前」数据，忽略 days
+ * @param range 查询范围：month=本月, last_month=上个月
  */
 export async function getWalletTransactions(
   walletAddress: string,
   days: number = 30,
   forceRefresh: boolean = false,
-  rangeMonth: boolean = true
+  range: 'month' | 'last_month' | null = 'month'
 ): Promise<PolymarketTransaction[]> {
   if (!walletAddress || !walletAddress.startsWith('0x')) {
     throw new Error('无效的钱包地址，必须以 0x 开头');
@@ -180,7 +180,7 @@ export async function getWalletTransactions(
   const normalizedAddress = walletAddress.toLowerCase();
 
   try {
-    const activities = await getActivitiesFromLocalAPI(normalizedAddress, days, forceRefresh, rangeMonth);
+    const activities = await getActivitiesFromLocalAPI(normalizedAddress, days, forceRefresh, range);
 
     if (!activities || activities.length === 0) {
       throw new Error('活动数据为空');

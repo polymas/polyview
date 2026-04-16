@@ -29,6 +29,7 @@ function HomeContent() {
   const [statistics, setStatistics] = useState<Statistics | null>(null);
   const [holdingDurations, setHoldingDurations] = useState<HoldingDuration[]>([]);
   const [currentMonth, setCurrentMonth] = useState<Date>(new Date());
+  const [activityRange, setActivityRange] = useState<'month' | 'last_month'>('month');
   const [statisticsDays, setStatisticsDays] = useState<number>(7);
   const [recentAddresses, setRecentAddresses] = useState<RecentAddress[]>([]);
   const [initialized, setInitialized] = useState<boolean>(false);
@@ -61,8 +62,13 @@ function HomeContent() {
     }
   }, [addressFromUrl]);
 
-  const handleSearch = useCallback(async (address?: string, forceRefresh = false) => {
+  const handleSearch = useCallback(async (
+    address?: string,
+    forceRefresh = false,
+    rangeOverride?: 'month' | 'last_month'
+  ) => {
     const targetAddress = address || walletAddress;
+    const queryRange = rangeOverride ?? activityRange;
 
     if (!targetAddress.trim()) {
       alert('请输入钱包地址');
@@ -86,11 +92,10 @@ function HomeContent() {
     setHoldingDurations([]);
 
     try {
-      const txData = await getWalletTransactions(targetAddress, 30, forceRefresh);
+      const txData = await getWalletTransactions(targetAddress, 30, forceRefresh, queryRange);
 
       if (txData.length === 0) {
-        alert('该钱包地址在 Polymarket 上没有找到交易记录');
-        setLoading(false);
+        // 本月无交易记录时保持空态展示，不弹窗打断交互
         return;
       }
 
@@ -112,11 +117,18 @@ function HomeContent() {
       addRecentAddress(targetAddress);
       setRecentAddresses(getRecentAddresses());
     } catch (error: any) {
-      alert(error.message || '获取交易记录失败，请检查钱包地址是否正确或稍后重试');
+      const msg = String(error?.message || '');
+      const noDataLike =
+        msg.includes('活动数据为空') ||
+        msg.includes('没有找到交易记录');
+      // 无数据场景保持空态，不弹窗；其他错误才提示
+      if (!noDataLike) {
+        alert(msg || '获取交易记录失败，请检查钱包地址是否正确或稍后重试');
+      }
     } finally {
       setLoading(false);
     }
-  }, [walletAddress, statisticsDays, searchParams, pathname, router, defaultAddress]);
+  }, [walletAddress, statisticsDays, searchParams, pathname, router, defaultAddress, activityRange]);
 
   // 从URL参数初始化地址并自动加载
   useEffect(() => {
@@ -129,11 +141,21 @@ function HomeContent() {
   }, [addressFromUrl, initialized, defaultAddress, handleSearch]);
 
   const handlePrevMonth = () => {
-    setCurrentMonth(new Date(currentMonth.getFullYear(), currentMonth.getMonth() - 1, 1));
+    const now = new Date();
+    setCurrentMonth(new Date(now.getFullYear(), now.getMonth() - 1, 1));
+    setActivityRange('last_month');
+    if (walletAddress?.startsWith('0x') && walletAddress.length === 42) {
+      handleSearch(undefined, false, 'last_month');
+    }
   };
 
   const handleNextMonth = () => {
-    setCurrentMonth(new Date(currentMonth.getFullYear(), currentMonth.getMonth() + 1, 1));
+    const now = new Date();
+    setCurrentMonth(new Date(now.getFullYear(), now.getMonth(), 1));
+    setActivityRange('month');
+    if (walletAddress?.startsWith('0x') && walletAddress.length === 42) {
+      handleSearch(undefined, false, 'month');
+    }
   };
 
   /** 点击盈亏日历某天：筛选当天平仓的命题；再次点击同一天则清除筛选 */

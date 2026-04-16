@@ -15,6 +15,19 @@ function getCurrentMonthFirstUtcSeconds(): number {
   return Math.floor(first.getTime() / 1000);
 }
 
+/** 上个月时间范围（UTC 秒），到上个月最后一秒 */
+function getLastMonthRangeUtcSeconds(): { from: number; to: number } {
+  const now = new Date();
+  const y = now.getUTCFullYear();
+  const m = now.getUTCMonth();
+  const currentMonthFirst = new Date(Date.UTC(y, m, 1, 0, 0, 0, 0));
+  const lastMonthFirst = new Date(Date.UTC(m === 0 ? y - 1 : y, m === 0 ? 11 : m - 1, 1, 0, 0, 0, 0));
+  return {
+    from: Math.floor(lastMonthFirst.getTime() / 1000),
+    to: Math.floor(currentMonthFirst.getTime() / 1000) - 1,
+  };
+}
+
 function getTimestamp(item: { timestamp?: number }): number {
   const t = item.timestamp ?? 0;
   return t > 1e10 ? Math.floor(t / 1000) : t;
@@ -113,7 +126,7 @@ export async function GET(request: NextRequest) {
     const sortDirection = searchParams.get('sort_direction') || 'DESC';
     const useCacheParam = searchParams.get('use_cache');
     const daysParam = searchParams.get('days');
-    const rangeParam = searchParams.get('range'); // 'month' = 本月1号 00:00 UTC 至当前时间
+    const rangeParam = searchParams.get('range'); // month=本月, last_month=上个月
 
     if (!user) {
       return NextResponse.json(
@@ -132,14 +145,23 @@ export async function GET(request: NextRequest) {
     const limit = limitParam ? parseInt(limitParam, 10) : 100;
     const offset = offsetParam ? parseInt(offsetParam, 10) : 0;
     const forceRefresh = useCacheParam === 'false';
-    const rangeMonth = rangeParam === 'month';
+    const rangeMode: 'month' | 'last_month' | null =
+      rangeParam === 'last_month' ? 'last_month' : rangeParam === 'month' ? 'month' : null;
     const days = daysParam ? parseInt(daysParam, 10) : null;
 
     const nowSec = Math.floor(Date.now() / 1000);
-    const from_ts = rangeMonth
-      ? getCurrentMonthFirstUtcSeconds()
-      : nowSec - (days ?? 180) * 24 * 60 * 60;
-    const to_ts = nowSec;
+    const currentMonthFirst = getCurrentMonthFirstUtcSeconds();
+    const lastMonthRange = getLastMonthRangeUtcSeconds();
+    const from_ts =
+      rangeMode === 'month'
+        ? currentMonthFirst
+        : rangeMode === 'last_month'
+          ? lastMonthRange.from
+          : nowSec - (days ?? 180) * 24 * 60 * 60;
+    const to_ts =
+      rangeMode === 'last_month'
+        ? lastMonthRange.to
+        : nowSec;
     const started = Date.now();
     const raw = await fetchActivityConcurrently(user, from_ts, to_ts);
     const mapped = raw.map((item) => mapItemToLegacyShape(item));
@@ -155,8 +177,10 @@ export async function GET(request: NextRequest) {
       limit > 0 && limit !== 3000 ? sorted.slice(offset, offset + limit) : sorted;
     const message =
       limit === 0 || limit === -1
-        ? rangeMonth
+        ? rangeMode === 'month'
           ? `成功并发获取本月 ${sliced.length} 条历史活动记录`
+          : rangeMode === 'last_month'
+            ? `成功并发获取上个月 ${sliced.length} 条历史活动记录`
           : days
             ? `成功获取最近 ${days} 天 ${sliced.length} 条历史活动记录`
             : `成功获取所有 ${sliced.length} 条历史活动记录`
