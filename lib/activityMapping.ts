@@ -1,5 +1,5 @@
 /**
- * polyking.site 活动条目的统一映射（服务端与前端共用，无 Node 专有逻辑）
+ * 活动条目的统一映射（服务端与前端共用，无 Node 专有逻辑）
  * 将 snake_case 转为 camelCase，与 pnlCalculator / 前端展示一致。
  */
 export function mapItemToLegacyShape(item: Record<string, unknown>): Record<string, unknown> {
@@ -24,13 +24,4 @@ export function mapItemToLegacyShape(item: Record<string, unknown>): Record<stri
     transactionHash: item.transaction_hash ?? item.transactionHash ?? '',
     user: item.user ?? '',
   };
-}
-
-/** 上个月1号 00:00:00 UTC 的 Unix 秒时间戳（与 API route 一致） */
-export function getLastMonthFirstUtcSeconds(): number {
-  const now = new Date();
-  const y = now.getUTCFullYear();
-  const m = now.getUTCMonth();
-  const first = new Date(Date.UTC(m === 0 ? y - 1 : y, m === 0 ? 11 : m - 1, 1, 0, 0, 0, 0));
-  return Math.floor(first.getTime() / 1000);
 }

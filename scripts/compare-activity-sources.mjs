@@ -3,14 +3,14 @@
  * 小规模比对「旧源」与「新源」历史交易数据，确保切换数据源前无差异。
  *
  * 旧源: Polymarket Data API (https://data-api.polymarket.com/activity)
- * 新源: poly_activity 缓存后端 (https://www.polyking.site/activity 或 POLY_ACTIVITY_BASE)
+ * 新源: 本项目 API (/api/activity，默认 http://localhost:3000/api/activity)
  *
  * 使用:
  *   node scripts/compare-activity-sources.mjs [address]
  *   node scripts/compare-activity-sources.mjs 0x38cc5Cf506aff32B8E26c5d19C7b288561805C4F
  *   FROM_TS=1735689600 TO_TS=1738368000 node scripts/compare-activity-sources.mjs
  *   FULL=1 FROM_TS=1767225600 TO_TS=1769904000 node scripts/compare-activity-sources.mjs  # 全量比对，建议上线前用
- *   可选: PROXY=127.0.0.1:7890  POLY_ACTIVITY_BASE=https://www.polyking.site/activity
+ *   可选: PROXY=127.0.0.1:7890  APP_ACTIVITY_BASE=http://localhost:3000/api/activity
  *
  * 默认时间范围: 2025-01-01 00:00 UTC 至 2025-02-01 00:00 UTC（约 1 个月，小规模）
  * 建议: 上线前用 FULL=1 对 1～2 个真实地址做全量比对，确保「仅旧有/仅新有」为 0 且字段差异为 0。
@@ -25,7 +25,7 @@ import { fileURLToPath } from 'url';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DATA_API_BASE = 'https://data-api.polymarket.com';
 const ACTIVITY_PATH = '/activity';
-const DEFAULT_POLY_ACTIVITY_BASE = 'https://www.polyking.site/activity';
+const DEFAULT_APP_ACTIVITY_BASE = 'http://localhost:3000/api/activity';
 
 // 默认小范围: 2025-01-01 00:00 UTC ~ 2025-02-01 00:00 UTC
 const DEFAULT_FROM_TS = 1735689600;
@@ -37,7 +37,7 @@ const useProxy = proxyRaw && proxyRaw !== '0' && proxyRaw.toLowerCase() !== 'fal
 const [proxyHost, proxyPort] = proxyRaw.includes(':') ? proxyRaw.split(':') : ['127.0.0.1', '7890'];
 const proxyUrl = useProxy ? `http://${proxyHost.trim()}:${proxyPort?.trim() || '7890'}` : null;
 
-const POLY_ACTIVITY_BASE = (process.env.POLY_ACTIVITY_BASE || DEFAULT_POLY_ACTIVITY_BASE).replace(/\/$/, '');
+const APP_ACTIVITY_BASE = (process.env.APP_ACTIVITY_BASE || DEFAULT_APP_ACTIVITY_BASE).replace(/\/$/, '');
 
 function createDataApiClient() {
   const config = {
@@ -64,7 +64,7 @@ function createPolyActivityClient() {
 }
 
 const dataApiClient = createDataApiClient();
-const polyActivityClient = createPolyActivityClient();
+const appActivityClient = createPolyActivityClient();
 
 function normalizeTs(v) {
   if (v == null) return 0;
@@ -205,9 +205,15 @@ async function fetchOldSourceFull(address, fromTs, toTs) {
 
 async function fetchNewSource(address, fromTs, toTs, limit) {
   const addr = address.toLowerCase();
-  const url = `${POLY_ACTIVITY_BASE}/wallets/${encodeURIComponent(addr)}/activity`;
-  const params = { from_ts: fromTs, to_ts: toTs, limit };
-  const res = await polyActivityClient.get(url, { params });
+  const url = `${APP_ACTIVITY_BASE}`;
+  const params = {
+    user: addr,
+    limit,
+    sort_direction: 'ASC',
+    use_cache: 'true',
+    days: Math.max(1, Math.ceil((toTs - fromTs) / 86400)),
+  };
+  const res = await appActivityClient.get(url, { params });
   const body = res.data;
   const data = Array.isArray(body?.data) ? body.data : [];
   return data.map((a) => normalizeNewItem(addr, a));
@@ -218,9 +224,15 @@ const NEW_SOURCE_FULL_LIMIT = 3000;
 
 async function fetchNewSourceFull(address, fromTs, toTs) {
   const addr = address.toLowerCase();
-  const url = `${POLY_ACTIVITY_BASE}/wallets/${encodeURIComponent(addr)}/activity`;
-  const res = await polyActivityClient.get(url, {
-    params: { from_ts: fromTs, to_ts: toTs, limit: NEW_SOURCE_FULL_LIMIT },
+  const url = `${APP_ACTIVITY_BASE}`;
+  const res = await appActivityClient.get(url, {
+    params: {
+      user: addr,
+      limit: NEW_SOURCE_FULL_LIMIT,
+      sort_direction: 'ASC',
+      use_cache: 'true',
+      days: Math.max(1, Math.ceil((toTs - fromTs) / 86400)),
+    },
   });
   const body = res.data;
   const data = Array.isArray(body?.data) ? body.data : [];
@@ -249,7 +261,7 @@ async function main() {
   console.log('=== 小规模比对：旧源 vs 新源 ===');
   console.log('地址:', addr);
   console.log('时间范围:', new Date(fromTs * 1000).toISOString(), '~', new Date(toTs * 1000).toISOString());
-  console.log('新源基地址:', POLY_ACTIVITY_BASE);
+  console.log('新源基地址:', APP_ACTIVITY_BASE);
   console.log('模式:', fullMode ? '全量（旧源分页拉满，新源 limit=' + NEW_SOURCE_FULL_LIMIT + '）' : '单页 limit=' + LIMIT);
   console.log('');
 
@@ -273,10 +285,10 @@ async function main() {
 
   try {
     if (fullMode) {
-      console.log('正在请求新源 (poly_activity，limit=' + NEW_SOURCE_FULL_LIMIT + ')...');
+      console.log('正在请求新源 (/api/activity，limit=' + NEW_SOURCE_FULL_LIMIT + ')...');
       newList = await fetchNewSourceFull(addr, fromTs, toTs);
     } else {
-      console.log('正在请求新源 (poly_activity)...');
+      console.log('正在请求新源 (/api/activity)...');
       newList = await fetchNewSource(addr, fromTs, toTs, LIMIT);
     }
     console.log('新源返回:', newList.length, '条');

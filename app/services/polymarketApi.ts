@@ -1,12 +1,11 @@
 import axios from 'axios';
 import { PolymarketTransaction } from '../types';
-import { mapItemToLegacyShape, getLastMonthFirstUtcSeconds } from '../../lib/activityMapping';
+import { mapItemToLegacyShape } from '../../lib/activityMapping';
 
 /**
  * 统一走本站 `/api/activity`，由 Vercel Node 后端并发拉取 activity 并返回聚合结果。
  */
-const POLY_ACTIVITY_BASE = '/api/activity';
-const LIMIT_MAX = 3000;
+const ACTIVITY_API_PATH = '/api/activity';
 
 function sleep(ms: number) {
   return new Promise((r) => setTimeout(r, ms));
@@ -35,52 +34,29 @@ async function requestWithRetry<T>(fn: () => Promise<T>, maxAttempts = 2): Promi
   throw lastErr;
 }
 
-/**
- * 前端直连 polyking.site 获取用户活动数据（不经过本应用 API 代理）
- * @param walletAddress 钱包地址
- * @param days 获取最近 N 天的数据（range=month 时忽略）
- * @param forceRefresh 是否强制刷新
- * @param rangeMonth 为 true 时拉取「上个月1号 00:00 UTC 至当天」，忽略 days
- */
+/** 前端统一走本站 `/api/activity`。 */
 async function getActivitiesFromLocalAPI(
   walletAddress: string,
   days?: number,
   forceRefresh = false,
   rangeMonth = false
 ): Promise<any[]> {
-  const base = POLY_ACTIVITY_BASE.replace(/\/$/, '');
+  const base = ACTIVITY_API_PATH.replace(/\/$/, '');
   const addr = walletAddress.toLowerCase();
-  const nowSec = Math.floor(Date.now() / 1000);
-  const from_ts = rangeMonth
-    ? getLastMonthFirstUtcSeconds()
-    : nowSec - (days ?? 180) * 24 * 60 * 60;
-  const to_ts = nowSec;
-
-  const isProxy = base === '/api/activity' || base.endsWith('/api/activity');
-
-  const params: Record<string, string | number | boolean | undefined> = isProxy
-    ? {
-        user: addr,
-        // 走我们的代理时让它一次拉到上限（由服务端做裁剪与排序）
-        limit: 0,
-        range: rangeMonth ? 'month' : undefined,
-        days: rangeMonth ? undefined : (days ?? 180),
-        use_cache: forceRefresh ? 'false' : 'true',
-        sort_direction: 'DESC',
-      }
-    : {
-        from_ts,
-        to_ts,
-        limit: LIMIT_MAX,
-        force_refresh: forceRefresh ? true : undefined,
-      };
+  const params: Record<string, string | number | boolean | undefined> = {
+    user: addr,
+    // 让服务端一次拉到上限后再统一裁剪与排序
+    limit: 0,
+    range: rangeMonth ? 'month' : undefined,
+    days: rangeMonth ? undefined : (days ?? 180),
+    use_cache: forceRefresh ? 'false' : 'true',
+    sort_direction: 'DESC',
+  };
 
   // 清理 undefined，避免 URLSearchParams 变成字符串 "undefined"
   Object.keys(params).forEach((k) => (params[k] === undefined ? delete params[k] : null));
 
-  const url = isProxy
-    ? `${base}?${new URLSearchParams(params as Record<string, string>).toString()}`
-    : `${base}/wallets/${encodeURIComponent(addr)}/activity?${new URLSearchParams(params as Record<string, string>).toString()}`;
+  const url = `${base}?${new URLSearchParams(params as Record<string, string>).toString()}`;
   const startMs = Date.now();
 
   try {
@@ -99,7 +75,7 @@ async function getActivitiesFromLocalAPI(
 
     const payload = response.data;
     const raw = Array.isArray(payload?.data) ? payload.data : [];
-    const mapped = isProxy ? raw : raw.map((item: any) => mapItemToLegacyShape(item as Record<string, unknown>));
+    const mapped = raw.map((item: any) => mapItemToLegacyShape(item as Record<string, unknown>));
     mapped.sort((a: any, b: any) => (Number(b.timestamp) || 0) - (Number(a.timestamp) || 0));
     return mapped;
   } catch (error: any) {
@@ -189,7 +165,7 @@ function transformActivityToTransaction(activity: any): PolymarketTransaction {
  * @param walletAddress 钱包地址
  * @param days 按天数时获取最近 N 天（rangeMonth 为 true 时忽略）
  * @param forceRefresh 为 true 时忽略缓存，强制重新拉取
- * @param rangeMonth 为 true 时拉取「上个月1号至当天」数据，忽略 days
+ * @param rangeMonth 为 true 时拉取「本月1号至当前」数据，忽略 days
  */
 export async function getWalletTransactions(
   walletAddress: string,
@@ -219,7 +195,7 @@ export async function getWalletTransactions(
   } catch (error: any) {
     throw new Error(
       `无法获取交易记录: ${error.message}\n` +
-      `请确认钱包地址 ${walletAddress} 在 Polymarket 上有交易记录，且网络可访问 polyking.site`
+      `请确认钱包地址 ${walletAddress} 在 Polymarket 上有交易记录，且网络可访问 data-api.polymarket.com`
     );
   }
 }

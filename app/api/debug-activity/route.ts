@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getActivityFromPolyActivity } from '../../../lib/polyActivityApi';
+import { fetchUserActivityFromAPI } from '../../../lib/polymarketApi';
+import { mapItemToLegacyShape } from '../../../lib/activityMapping';
 
 const USER = '0x8ec4c13da685b5505399889012a57b954fb246c2';
 
@@ -21,12 +22,17 @@ export async function GET(request: NextRequest) {
   const from_ts = nowSec - 30 * 24 * 60 * 60;
 
   try {
-    const result = await getActivityFromPolyActivity(USER, {
+    const raw = await fetchUserActivityFromAPI(
+      USER,
+      500,
+      0,
+      'TIMESTAMP',
+      'DESC',
+      true,
       from_ts,
-      to_ts: nowSec,
-      limit: 3000,
-    });
-    const activities = result.data;
+      nowSec
+    );
+    const activities = raw.map((item) => mapItemToLegacyShape(item as Record<string, unknown>));
 
     const rawForMarket = activities.filter(
       (a: any) => (a.conditionId || '').toLowerCase() === cidLower
@@ -64,7 +70,7 @@ export async function GET(request: NextRequest) {
 
     return NextResponse.json({
       conditionId,
-      totalActivitiesFetched: result.data.length,
+      totalActivitiesFetched: activities.length,
       rawForThisMarket: rawForMarket.length,
       raw: rawForMarket,
       transformed,

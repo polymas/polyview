@@ -113,7 +113,7 @@ export async function GET(request: NextRequest) {
     const sortDirection = searchParams.get('sort_direction') || 'DESC';
     const useCacheParam = searchParams.get('use_cache');
     const daysParam = searchParams.get('days');
-    const rangeParam = searchParams.get('range'); // 'month' = 上个月1号 00:00 UTC 至当天
+    const rangeParam = searchParams.get('range'); // 'month' = 本月1号 00:00 UTC 至当前时间
 
     if (!user) {
       return NextResponse.json(

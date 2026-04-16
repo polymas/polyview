@@ -18,7 +18,7 @@
 - **数据可视化**: Recharts
 - **日期处理**: date-fns
 - **HTTP 客户端**: Axios
-- **活动数据源**: polyking.site（无本地缓存）
+- **活动数据源**: Polymarket Data API（无本地缓存）
 
 ## 安装和运行
 
@@ -116,8 +116,7 @@ polyview/
 │   ├── layout.tsx        # 布局组件
 │   └── globals.css       # 全局样式
 ├── lib/
-│   ├── polyActivityApi.ts  # polyking.site 活动接口客户端
-│   └── polymarketApi.ts    # Polymarket 直连 API（脚本用）
+│   └── polymarketApi.ts    # Polymarket 直连 API（脚本/后端用）
 ├── next.config.mjs       # Next.js 配置
 ├── vercel.json           # Vercel 部署配置
 └── package.json

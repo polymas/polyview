@@ -1,24 +1,21 @@
 import { NextResponse } from 'next/server';
 
-const POLY_ACTIVITY_BASE = (process.env.POLY_ACTIVITY_BASE || 'https://www.polyking.site/activity').replace(
-  /\/$/,
-  ''
-);
+const POLYMARKET_DATA_API_BASE = 'https://data-api.polymarket.com';
 
 export async function GET() {
   try {
-    const res = await fetch(`${POLY_ACTIVITY_BASE}/`, {
+    const res = await fetch(`${POLYMARKET_DATA_API_BASE}/activity?limit=1`, {
       method: 'HEAD',
       signal: AbortSignal.timeout(5000),
     });
     return NextResponse.json({
       status: 'healthy',
-      poly_activity: res.ok ? 'accessible' : 'unavailable',
+      polymarket_data_api: res.ok ? 'accessible' : 'unavailable',
     });
   } catch {
     return NextResponse.json({
       status: 'healthy',
-      poly_activity: 'unavailable',
+      polymarket_data_api: 'unavailable',
     });
   }
 }
