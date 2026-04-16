@@ -1,18 +1,107 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getActivityFromPolyActivity } from '../../../lib/polyActivityApi';
+import { fetchUserActivityFromAPI } from '../../../lib/polymarketApi';
+import { mapItemToLegacyShape } from '../../../lib/activityMapping';
 
-/** 上个月1号 00:00:00 UTC 的 Unix 秒时间戳 */
-function getLastMonthFirstUtcSeconds(): number {
+const POLY_PAGE_LIMIT = 500;
+const POLY_MAX_OFFSET = 3000;
+const DEFAULT_SEGMENTS = 6;
+
+/** 本月1号 00:00:00 UTC 的 Unix 秒时间戳 */
+function getCurrentMonthFirstUtcSeconds(): number {
   const now = new Date();
   const y = now.getUTCFullYear();
   const m = now.getUTCMonth();
-  const first = new Date(Date.UTC(m === 0 ? y - 1 : y, m === 0 ? 11 : m - 1, 1, 0, 0, 0, 0));
+  const first = new Date(Date.UTC(y, m, 1, 0, 0, 0, 0));
   return Math.floor(first.getTime() / 1000);
 }
 
 function getTimestamp(item: { timestamp?: number }): number {
   const t = item.timestamp ?? 0;
   return t > 1e10 ? Math.floor(t / 1000) : t;
+}
+
+function filterByConditionIdsFromEnv(data: Record<string, unknown>[]): Record<string, unknown>[] {
+  const envIds = process.env.FILTER_CONDITION_IDS;
+  if (!envIds) return data;
+  const exclude = envIds
+    .split(',')
+    .map((id) => id.trim().toLowerCase())
+    .filter((id) => id.length > 0);
+  if (exclude.length === 0) return data;
+  return data.filter((row) => {
+    const cid = (row.conditionId ?? row.condition_id ?? '') as string;
+    if (!cid) return true;
+    return !exclude.includes(String(cid).toLowerCase());
+  });
+}
+
+function dedupeActivities(data: Record<string, unknown>[]): Record<string, unknown>[] {
+  const seen = new Set<string>();
+  const unique: Record<string, unknown>[] = [];
+  for (const item of data) {
+    const key = [
+      String(item.transactionHash ?? item.transaction_hash ?? ''),
+      String(item.conditionId ?? item.condition_id ?? ''),
+      String(item.tokenId ?? item.token_id ?? item.asset ?? ''),
+      String(item.type ?? ''),
+      String(item.timestamp ?? ''),
+    ].join('_');
+    if (seen.has(key)) continue;
+    seen.add(key);
+    unique.push(item);
+  }
+  return unique;
+}
+
+function splitRange(fromTs: number, toTs: number, segments: number): Array<{ start: number; end: number }> {
+  const safeSegments = Math.max(1, segments);
+  const total = Math.max(0, toTs - fromTs);
+  const step = Math.max(1, Math.ceil(total / safeSegments));
+  const ranges: Array<{ start: number; end: number }> = [];
+  for (let i = 0; i < safeSegments; i++) {
+    const start = fromTs + i * step;
+    const end = i === safeSegments - 1 ? toTs : Math.min(toTs, start + step - 1);
+    if (start <= end) ranges.push({ start, end });
+  }
+  return ranges;
+}
+
+async function fetchSegmentActivity(
+  user: string,
+  start: number,
+  end: number
+): Promise<Record<string, unknown>[]> {
+  const all: Record<string, unknown>[] = [];
+  for (let offset = 0; offset <= POLY_MAX_OFFSET; offset += POLY_PAGE_LIMIT) {
+    const batch = await fetchUserActivityFromAPI(
+      user,
+      POLY_PAGE_LIMIT,
+      offset,
+      'TIMESTAMP',
+      'DESC',
+      true,
+      start,
+      end
+    );
+    if (!Array.isArray(batch) || batch.length === 0) break;
+    all.push(...(batch as Record<string, unknown>[]));
+    if (batch.length < POLY_PAGE_LIMIT) break;
+  }
+  return all;
+}
+
+async function fetchActivityConcurrently(
+  user: string,
+  fromTs: number,
+  toTs: number
+): Promise<Record<string, unknown>[]> {
+  const segmentCount = Math.min(
+    12,
+    Math.max(1, Number(process.env.ACTIVITY_CONCURRENT_SEGMENTS || DEFAULT_SEGMENTS))
+  );
+  const ranges = splitRange(fromTs, toTs, segmentCount);
+  const chunked = await Promise.all(ranges.map((r) => fetchSegmentActivity(user, r.start, r.end)));
+  return chunked.flat();
 }
 
 export async function GET(request: NextRequest) {
@@ -48,18 +137,14 @@ export async function GET(request: NextRequest) {
 
     const nowSec = Math.floor(Date.now() / 1000);
     const from_ts = rangeMonth
-      ? getLastMonthFirstUtcSeconds()
+      ? getCurrentMonthFirstUtcSeconds()
       : nowSec - (days ?? 180) * 24 * 60 * 60;
     const to_ts = nowSec;
-
-    const requestLimit = limit === 0 || limit === -1 ? 3000 : Math.min(limit + offset, 3000);
-    const result = await getActivityFromPolyActivity(user, {
-      from_ts,
-      to_ts,
-      limit: requestLimit,
-      force_refresh: forceRefresh,
-    });
-    const data = result.data;
+    const started = Date.now();
+    const raw = await fetchActivityConcurrently(user, from_ts, to_ts);
+    const mapped = raw.map((item) => mapItemToLegacyShape(item));
+    const data = dedupeActivities(filterByConditionIdsFromEnv(mapped));
+    const elapsedSec = ((Date.now() - started) / 1000).toFixed(2);
 
     const sorted =
       sortDirection.toUpperCase() === 'ASC'
@@ -71,7 +156,7 @@ export async function GET(request: NextRequest) {
     const message =
       limit === 0 || limit === -1
         ? rangeMonth
-          ? `成功获取上个月1日至当天 ${sliced.length} 条历史活动记录`
+          ? `成功并发获取本月 ${sliced.length} 条历史活动记录`
           : days
             ? `成功获取最近 ${days} 天 ${sliced.length} 条历史活动记录`
             : `成功获取所有 ${sliced.length} 条历史活动记录`
@@ -83,12 +168,10 @@ export async function GET(request: NextRequest) {
       data: sliced,
       message,
     };
-    if (result.backendRequestUrl != null || result.backendRequestElapsedSec != null) {
-      body._debug = {
-        backendRequestUrl: result.backendRequestUrl,
-        backendRequestElapsedSec: result.backendRequestElapsedSec,
-      };
-    }
+    body._debug = {
+      backendRequestElapsedSec: elapsedSec,
+      source: 'polymarket-data-api-concurrent',
+    };
     return NextResponse.json(body);
   } catch (error: unknown) {
     const err = error as { message?: string; code?: string };

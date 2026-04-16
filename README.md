@@ -77,8 +77,7 @@ vercel
 
 如需自定义配置，可在 Vercel 项目设置中添加：
 
-- `NEXT_PUBLIC_POLY_ACTIVITY_BASE`: 前端直连的活动后端地址（默认：`https://www.polyking.site/activity`）
-- `POLY_ACTIVITY_BASE`: 服务端代理 `/api/activity` 时使用的后端地址（可选）
+- `ACTIVITY_CONCURRENT_SEGMENTS`: `/api/activity` 并发分片数（默认 `6`，最大 `12`）
 - `FILTER_CONDITION_IDS`: 服务端排除的 conditionId 列表（仅代理接口生效，可选）
 
 ## 使用说明
@@ -90,7 +89,7 @@ vercel
 
 ## API 端点
 
-- `GET /api/activity` - 获取用户活动记录（数据来自 polyking.site，无本地缓存）
+- `GET /api/activity` - 获取用户活动记录（Vercel Node 后端并发拉取 Polymarket activity）
   - 参数: `user` (必需), `limit` (0 或 -1 表示全部), `offset`, `sort_by`, `sort_direction`, `use_cache`（传 `false` 时向后端请求强制刷新）, `days`, `range=month`
 - `GET /api/health` - 健康检查
 
@@ -100,7 +99,7 @@ vercel
 polyview/
 ├── app/
 │   ├── api/              # API Routes
-│   │   ├── activity/     # 活动数据 API（代理至 polyking.site）
+│   │   ├── activity/     # 活动数据 API（并发拉取 Polymarket activity）
 │   │   └── health/       # 健康检查 API
 │   ├── components/       # React 组件
 │   │   ├── PnLTable.tsx           # 盈亏表格组件
@@ -126,14 +125,14 @@ polyview/
 
 ## 工作原理
 
-1. **数据获取**: 前端直连 **polyking.site** 获取用户活动数据（不经过本应用 API，无本地缓存）
+1. **数据获取**: 前端调用本站 `/api/activity`，由 Vercel Node 后端按时间分片并发拉取 activity 后聚合去重
 2. **数据计算**: 前端使用 `pnlCalculator` 计算盈亏、统计数据等
 3. **数据展示**: 使用 React 组件和 Recharts 可视化展示数据
 
 ## 注意事项
 
-- **数据源**: 活动数据由 **polyking.site** 提供，本应用不缓存，每次查询由后端返回
-- **网络**: 部署环境需能访问 `https://www.polyking.site/activity`
+- **数据源**: 活动数据由 Polymarket Data API 提供，本应用不缓存，每次查询由后端实时拉取
+- **网络**: 部署环境需能访问 `https://data-api.polymarket.com`
 - 若钱包地址无交易记录，会显示相应提示
 
 ## 开发

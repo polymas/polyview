@@ -2,8 +2,38 @@ import axios from 'axios';
 import { PolymarketTransaction } from '../types';
 import { mapItemToLegacyShape, getLastMonthFirstUtcSeconds } from '../../lib/activityMapping';
 
-const POLY_ACTIVITY_BASE = process.env.NEXT_PUBLIC_POLY_ACTIVITY_BASE || 'https://www.polyking.site/activity';
+/**
+ * 统一走本站 `/api/activity`，由 Vercel Node 后端并发拉取 activity 并返回聚合结果。
+ */
+const POLY_ACTIVITY_BASE = '/api/activity';
 const LIMIT_MAX = 3000;
+
+function sleep(ms: number) {
+  return new Promise((r) => setTimeout(r, ms));
+}
+
+async function requestWithRetry<T>(fn: () => Promise<T>, maxAttempts = 2): Promise<T> {
+  let lastErr: unknown = null;
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      return await fn();
+    } catch (err: any) {
+      lastErr = err;
+      const status = err?.response?.status;
+      const message = String(err?.message || '');
+      const isRetryable =
+        status === 503 ||
+        status === 504 ||
+        message.includes('503') ||
+        message.includes('504') ||
+        message.toLowerCase().includes('timeout') ||
+        message.includes('超时');
+      if (!isRetryable || attempt === maxAttempts) break;
+      await sleep(400 * attempt);
+    }
+  }
+  throw lastErr;
+}
 
 /**
  * 前端直连 polyking.site 获取用户活动数据（不经过本应用 API 代理）
@@ -26,33 +56,66 @@ async function getActivitiesFromLocalAPI(
     : nowSec - (days ?? 180) * 24 * 60 * 60;
   const to_ts = nowSec;
 
-  const params: Record<string, string | number | boolean> = {
-    from_ts,
-    to_ts,
-    limit: LIMIT_MAX,
-  };
-  if (forceRefresh) params.force_refresh = true;
+  const isProxy = base === '/api/activity' || base.endsWith('/api/activity');
 
-  const url = `${base}/wallets/${encodeURIComponent(addr)}/activity?${new URLSearchParams(params as Record<string, string>).toString()}`;
+  const params: Record<string, string | number | boolean | undefined> = isProxy
+    ? {
+        user: addr,
+        // 走我们的代理时让它一次拉到上限（由服务端做裁剪与排序）
+        limit: 0,
+        range: rangeMonth ? 'month' : undefined,
+        days: rangeMonth ? undefined : (days ?? 180),
+        use_cache: forceRefresh ? 'false' : 'true',
+        sort_direction: 'DESC',
+      }
+    : {
+        from_ts,
+        to_ts,
+        limit: LIMIT_MAX,
+        force_refresh: forceRefresh ? true : undefined,
+      };
+
+  // 清理 undefined，避免 URLSearchParams 变成字符串 "undefined"
+  Object.keys(params).forEach((k) => (params[k] === undefined ? delete params[k] : null));
+
+  const url = isProxy
+    ? `${base}?${new URLSearchParams(params as Record<string, string>).toString()}`
+    : `${base}/wallets/${encodeURIComponent(addr)}/activity?${new URLSearchParams(params as Record<string, string>).toString()}`;
   const startMs = Date.now();
 
   try {
-    const response = await axios.get<{ data?: unknown[] }>(url, {
-      headers: { Accept: 'application/json' },
-      timeout: 120000,
-    });
+    const response = await requestWithRetry(
+      () =>
+        axios.get<any>(url, {
+          headers: { Accept: 'application/json' },
+          timeout: 120000,
+        }),
+      2
+    );
 
     const elapsedSec = ((Date.now() - startMs) / 1000).toFixed(2);
     console.log('[polyview] 后端请求:', url);
     console.log('[polyview] 后端请求耗时:', elapsedSec, '秒');
 
-    const raw = Array.isArray(response.data?.data) ? response.data.data : [];
-    const mapped = raw.map((item) => mapItemToLegacyShape(item as Record<string, unknown>));
-    mapped.sort((a, b) => (Number(b.timestamp) || 0) - (Number(a.timestamp) || 0));
+    const payload = response.data;
+    const raw = Array.isArray(payload?.data) ? payload.data : [];
+    const mapped = isProxy ? raw : raw.map((item: any) => mapItemToLegacyShape(item as Record<string, unknown>));
+    mapped.sort((a: any, b: any) => (Number(b.timestamp) || 0) - (Number(a.timestamp) || 0));
     return mapped;
   } catch (error: any) {
     if (error.response?.status) {
-      throw new Error(`活动接口 ${error.response.status}: ${error.response?.data?.message || error.message}`);
+      const status = error.response.status;
+      const serverMsg =
+        error.response?.data?.error ||
+        error.response?.data?.message ||
+        error.response?.data?.detail ||
+        error.message;
+      // 避免把上游内部错误（例如 DuckDB assertion）直接展示给用户
+      const safeMsg =
+        status === 503 || status === 504
+          ? '活动服务暂时不可用，请稍后重试。'
+          : String(serverMsg || '获取活动失败');
+      throw new Error(`活动接口 ${status}: ${safeMsg}`);
     }
     if (error.code === 'ECONNABORTED' || error.message?.includes('timeout')) {
       throw new Error('请求活动数据超时，请稍后重试');
